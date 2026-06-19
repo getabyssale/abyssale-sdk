@@ -27,19 +27,18 @@ export function retryMiddleware(maxRetries: number): Middleware {
 }
 
 /**
- * Request timeout middleware using AbortController.
+ * Request timeout middleware.
  * Aborts the request if it has not completed within `timeoutMs` milliseconds.
+ * Uses AbortSignal.timeout() (no timer leak) and AbortSignal.any() to also
+ * honour any AbortSignal the caller may have attached to the request.
  */
 export function timeoutMiddleware(timeoutMs: number): Middleware {
   return {
     onRequest({ request }) {
-      const controller = new AbortController();
-      const id = setTimeout(() => controller.abort(), timeoutMs);
-
-      // Clear the timeout if the request finishes before the deadline
-      request.signal?.addEventListener("abort", () => clearTimeout(id));
-
-      return new Request(request, { signal: controller.signal });
+      const signals: AbortSignal[] = [AbortSignal.timeout(timeoutMs)];
+      if (request.signal) signals.push(request.signal);
+      const signal = signals.length > 1 ? AbortSignal.any(signals) : signals[0];
+      return new Request(request, { signal });
     },
   };
 }

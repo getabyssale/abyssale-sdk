@@ -32,6 +32,8 @@ type ExportBannersBody =
   operations["exportBanners"]["requestBody"]["content"]["application/json"];
 type CreateDynamicImageUrlBody =
   operations["createDynamicImageUrl"]["requestBody"]["content"]["application/json"];
+type CreateProjectBody =
+  operations["createProject"]["requestBody"]["content"]["application/json"];
 type DuplicateWorkspaceTemplateBody =
   operations["duplicateWorkspaceTemplate"]["requestBody"]["content"]["application/json"];
 type ListDesignsQuery = NonNullable<
@@ -49,8 +51,23 @@ if (!apiKey) {
 const baseUrl =
   process.env.ABYSSALE_BASE_URL ?? "https://api.abyssale.com";
 
-const timeoutMs = Number(process.env.ABYSSALE_TIMEOUT_MS ?? 30_000);
-const maxRetries = Number(process.env.ABYSSALE_MAX_RETRIES ?? 3);
+const timeoutMs = (() => {
+  const raw = process.env.ABYSSALE_TIMEOUT_MS;
+  if (!raw) return 30_000;
+  const val = Number(raw);
+  if (!Number.isFinite(val) || val <= 0)
+    throw new Error(`[abyssale] ABYSSALE_TIMEOUT_MS must be a positive number, got "${raw}"`);
+  return val;
+})();
+
+const maxRetries = (() => {
+  const raw = process.env.ABYSSALE_MAX_RETRIES;
+  if (!raw) return 3;
+  const val = Number(raw);
+  if (!Number.isInteger(val) || val < 0)
+    throw new Error(`[abyssale] ABYSSALE_MAX_RETRIES must be a non-negative integer, got "${raw}"`);
+  return val;
+})();
 
 // ── HTTP client ───────────────────────────────────────────────────────────────
 const _client = createClient<paths>({
@@ -195,7 +212,7 @@ const abyssale = {
    * @example
    * const { data } = await abyssale.createProject({ name: 'Summer Campaign 2025' });
    */
-  createProject: (body: { name: string }) =>
+  createProject: (body: CreateProjectBody) =>
     _client.POST("/projects", { body }),
 
   // ── Exports ───────────────────────────────────────────────────────────────
@@ -294,8 +311,9 @@ async function pollUntil<T>(
   let interval = opts.intervalMs;
   for (;;) {
     const { data, error } = await fn();
-    if (error) throw new Error(`[abyssale] Polling failed: ${JSON.stringify(error)}`);
-    if (data && isDone(data)) return data;
+    if (error) throw new Error(`[abyssale] Polling failed: ${error instanceof Error ? error.message : JSON.stringify(error)}`);
+    if (!data) throw new Error("[abyssale] Polling returned empty response");
+    if (isDone(data)) return data;
     const wait = interval + jitter();
     if (Date.now() + wait > deadline) throw new Error("Polling timed out");
     await sleep(wait);

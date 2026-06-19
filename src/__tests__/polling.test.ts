@@ -31,7 +31,8 @@ async function pollUntil<T>(
   for (;;) {
     const { data, error } = await fn();
     if (error) throw new Error(`[abyssale] Polling failed: ${JSON.stringify(error)}`);
-    if (data && isDone(data)) return data;
+    if (!data) throw new Error("[abyssale] Polling returned empty response");
+    if (isDone(data)) return data;
     const wait = interval + jitter();
     if (Date.now() + wait > deadline) throw new Error("Polling timed out");
     await sleep(wait);
@@ -93,19 +94,26 @@ describe("pollUntil (waitForGenerationRequest logic)", () => {
     await Promise.all([vi.runAllTimersAsync(), expect(promise).rejects.toThrow("[abyssale] Polling failed:")]);
   });
 
-  it("clamps intervalMs to minimum 500ms", () => {
+  it("clamps intervalMs to minimum 2 000ms", () => {
     const opts = resolveOpts({ intervalMs: 10 });
     expect(opts.intervalMs).toBe(POLL_MIN_INTERVAL_MS);
   });
 
-  it("clamps maxIntervalMs to minimum 1 000ms", () => {
+  it("clamps maxIntervalMs to minimum 5 000ms", () => {
     const opts = resolveOpts({ maxIntervalMs: 100 });
     expect(opts.maxIntervalMs).toBe(POLL_MIN_MAX_INTERVAL_MS);
   });
 
-  it("clamps timeoutMs to minimum 5 000ms", () => {
+  it("clamps timeoutMs to minimum 60 000ms", () => {
     const opts = resolveOpts({ timeoutMs: 100 });
     expect(opts.timeoutMs).toBe(POLL_MIN_TIMEOUT_MS);
+  });
+
+  it("throws when polling returns empty data", async () => {
+    const fn = vi.fn().mockResolvedValue({ data: null });
+
+    const promise = pollUntil(fn, () => false, makeOpts());
+    await Promise.all([vi.runAllTimersAsync(), expect(promise).rejects.toThrow("[abyssale] Polling returned empty response")]);
   });
 
   it("uses defaults: 3s interval, 30s maxInterval, 30min timeout", () => {

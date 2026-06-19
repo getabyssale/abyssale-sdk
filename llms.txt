@@ -58,7 +58,7 @@ Set the environment variable `ABYSSALE_API_KEY` to your Abyssale API key.
 - TypeScript-first with types generated from the OpenAPI spec — full IntelliSense
 - Dual ESM and CJS output — works in any Node.js project
 - Zero-config singleton — no constructor, no setup beyond setting an env var
-- Auto-retry with exponential backoff on 429 and 5xx errors (3 retries, 30 s timeout — hardcoded)
+- Auto-retry with exponential backoff on 429 and 5xx errors (default: 3 retries, 30 s timeout — configurable via `ABYSSALE_MAX_RETRIES` and `ABYSSALE_TIMEOUT_MS`)
 - Built-in polling helpers (`waitForGenerationRequest`, `waitForDuplicationRequest`) with exponential backoff, jitter, and configurable timeout (default 30 min, min 1 min)
 - Returns `{ data, error }` — never throws on HTTP errors
 

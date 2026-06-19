@@ -5,7 +5,7 @@
  * Use this for one-off renders or low-volume flows where latency is acceptable.
  *
  * Run:
- *   ABYSSALE_API_KEY=your-key node examples/generate-image.mjs
+ *   ABYSSALE_API_KEY=your-key npx tsx generate-image.ts
  */
 
 import abyssale from '@abyssale/sdk';
@@ -16,7 +16,7 @@ const { data, error } = await abyssale.generateImage(DESIGN_ID, {
   template_format_name: 'instagram-square',
   elements: {
     headline: { payload: 'Summer Sale — 50% Off' },
-    product_image: { url: 'https://cdn.example.com/product.jpg' },
+    product_image: { image_url: 'https://cdn.example.com/product.jpg' },
     cta_button: {
       payload: 'Shop Now',
       background_color: '#FF6B35',
@@ -29,6 +29,6 @@ if (error) {
   process.exit(1);
 }
 
-console.log('Banner ID  :', data.banner_id);
+console.log('Banner ID  :', data.id);
 console.log('CDN URL    :', data.file.cdn_url);
-console.log('Format     :', data.template_format_name);
+console.log('Format     :', data.format?.id);

@@ -1,14 +1,15 @@
 /**
  * Batch export — package a set of banners into a downloadable ZIP archive.
  *
- * exportBanners() queues an async export job. Supply a callback_url to get
- * notified when the archive is ready, or poll getGenerationRequest() manually.
+ * exportBanners() queues an async export job and returns an export_id.
+ * Supply a callback_url to be notified when the archive is ready — Abyssale
+ * will POST to that URL with a download link once the ZIP is built.
  *
  * Typical use: after bulk-generating ad creatives, export them all as a ZIP
  * to hand off to a media buyer or upload to an ad platform.
  *
  * Run:
- *   ABYSSALE_API_KEY=your-key node examples/export-zip.mjs
+ *   ABYSSALE_API_KEY=your-key npx tsx export-banners.ts
  */
 
 import abyssale from '@abyssale/sdk';
@@ -22,8 +23,8 @@ const BANNER_IDS = [
 
 const { data, error } = await abyssale.exportBanners({
   ids: BANNER_IDS,
-  // Optional: Abyssale will POST to this URL when the ZIP is ready
-  // callback_url: 'https://your-server.com/webhooks/export-ready',
+  // Abyssale will POST to this URL with the ZIP download link when ready
+  callback_url: 'https://your-server.com/webhooks/export-ready',
 });
 
 if (error) {
@@ -32,7 +33,4 @@ if (error) {
 }
 
 console.log('Export queued.');
-console.log('Export request ID:', data.export_request_id);
-console.log('');
-console.log('Poll getGenerationRequest(export_request_id) or wait for your callback_url');
-console.log('to be called with the download link once the ZIP is ready.');
+console.log('Export ID:', data.export_id);

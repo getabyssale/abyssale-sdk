@@ -8,7 +8,7 @@ Official Node.js / TypeScript SDK for the [Abyssale API](https://developers.abys
 npm install @abyssale/sdk
 ```
 
-**Requires Node.js ≥ 18.**
+**Requires Node.js ≥ 20.**
 
 ## Quick start
 
@@ -37,6 +37,8 @@ The SDK reads configuration from environment variables — no constructor argume
 | Variable | Required | Default | Description |
 |---|---|---|---|
 | `ABYSSALE_API_KEY` | ✅ | — | Your Abyssale API key. The SDK throws at import time if this is not set. |
+| `ABYSSALE_TIMEOUT_MS` | — | `30000` | Per-request timeout in milliseconds. |
+| `ABYSSALE_MAX_RETRIES` | — | `3` | Maximum number of retries on `429` and `5xx` errors. |
 
 ```bash
 ABYSSALE_API_KEY=your-key node your-script.js
@@ -119,16 +121,17 @@ const imageUrl = `${data.dynamic_image_url}?first_name=Alice&company_logo=https:
 import abyssale from '@abyssale/sdk';
 
 const { data: request, error } = await abyssale.generateMultiPagePdf('design-id', {
-  pages: [
-    { elements: { title: { payload: 'Chapter 1' }, body: { payload: 'Content...' } } },
-    { elements: { title: { payload: 'Chapter 2' }, body: { payload: 'More content...' } } },
-  ],
+  pages: {
+    page_1: { root: { background_color: '#FFFFFF' } },
+    page_2: { root: { background_color: '#F5F5F5' } },
+  },
 });
 
 if (error) throw new Error(JSON.stringify(error));
+if (!request.generation_request_id) throw new Error('No generation_request_id');
 
 const result = await abyssale.waitForGenerationRequest(request.generation_request_id);
-console.log(result.banners[0].file.cdn_url); // download the PDF
+console.log(result.banners[0]?.file.cdn_url); // download the PDF
 ```
 
 ### Batch export as ZIP
@@ -168,7 +171,7 @@ The SDK automatically retries failed requests with exponential backoff:
 - Default: up to **3 retries** (1 s → 2 s → 4 s delays + jitter)
 - Default timeout: **30 seconds** per request
 
-Both are configurable via environment variables.
+Both are configurable via environment variables (`ABYSSALE_TIMEOUT_MS`, `ABYSSALE_MAX_RETRIES`).
 
 ## Key features
 

@@ -9,14 +9,14 @@ Types are auto-generated from the public OpenAPI spec at `https://api-reference.
 ```
 src/generated.ts       ← auto-generated types (openapi-typescript) — never edit manually
 src/middleware.ts      ← retry + timeout middleware
-src/index.ts           ← singleton export with all 15 named methods + public type re-exports
+src/index.ts           ← singleton export with all 17 named methods + public type re-exports
 dist/                  ← compiled output (gitignored) — built by tsup
 ```
 
 ## Key decisions
 
 - **Singleton pattern** — `import abyssale from '@abyssale/sdk'` gives a ready-to-use object. No `new`, no constructor.
-- **Config via env vars only** — `ABYSSALE_API_KEY` (required). `ABYSSALE_BASE_URL` is an undocumented escape hatch for local URL overrides. Timeout (30 s) and retries (3) are hardcoded.
+- **Config via env vars only** — `ABYSSALE_API_KEY` (required). `ABYSSALE_TIMEOUT_MS` (default 30 000) and `ABYSSALE_MAX_RETRIES` (default 3) are optional. `ABYSSALE_BASE_URL` is an undocumented escape hatch for local URL overrides.
 - **Production-only** — base URL is always `https://api.abyssale.com`. Override locally via `ABYSSALE_BASE_URL`.
 - **openapi-fetch returns `{ data, error }`** — methods never throw on HTTP errors. Always check `error`.
 - **openapi-fetch is bundled inline** (`noExternal: ['openapi-fetch']` in tsup) because it is ESM-only and would break CJS consumers otherwise.
