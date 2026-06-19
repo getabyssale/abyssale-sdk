@@ -1,0 +1,60 @@
+{
+  "name": "@abyssale/sdk",
+  "version": "1.0.0",
+  "description": "Official Node.js/TypeScript SDK for programmatic image generation, animated banners, and print-ready PDFs via the Abyssale API",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "generate": "openapi-typescript https://api-reference.abyssale.com/api.yaml -o src/generated.ts",
+    "dev": "tsup --watch",
+    "build": "tsup",
+    "test": "vitest run",
+    "prepublishOnly": "npm run generate && npm run build && npm test"
+  },
+  "dependencies": {
+    "openapi-fetch": "^0.13"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.3",
+    "openapi-typescript": "^7",
+    "tsup": "^8",
+    "typescript": "^5",
+    "vitest": "^2"
+  },
+  "keywords": [
+    "abyssale",
+    "image-generation",
+    "banner-generation",
+    "programmatic-design",
+    "creative-automation",
+    "dynamic-images",
+    "multi-format",
+    "asset-generation",
+    "design-automation",
+    "sdk",
+    "typescript"
+  ],
+  "author": "Abyssale <dev@abyssale.com>",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/abyssale/abyssale-sdk"
+  },
+  "license": "MIT"
+}

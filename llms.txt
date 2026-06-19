@@ -1,0 +1,70 @@
+# Abyssale Node.js SDK
+
+## What is Abyssale?
+
+Abyssale is a programmatic creative asset generation API. It lets developers generate
+marketing visuals, ad creatives, animated GIFs, HTML5 banners, videos, and print-ready
+PDFs at scale — directly from code. Design a template once in the Abyssale editor, then
+generate thousands of personalised variations via a single API call, substituting text,
+images, colors, and other properties dynamically.
+
+## What is this SDK?
+
+`@abyssale/sdk` is the official Node.js / TypeScript SDK for the Abyssale REST API.
+It provides a zero-config singleton with 17 typed methods covering the full API surface,
+plus built-in polling helpers with exponential backoff. Configuration is done via the
+`ABYSSALE_API_KEY` environment variable. The SDK ships as dual ESM/CJS with full
+TypeScript types generated from the OpenAPI spec.
+
+## Installation
+
+```
+npm install @abyssale/sdk
+```
+
+Set the environment variable `ABYSSALE_API_KEY` to your Abyssale API key.
+
+## Methods
+
+- `listDesigns(query?)` — List all designs in the workspace, with optional filtering by project or type
+- `getDesign(designId)` — Get full details of a design including formats, elements, and template variables
+- `getDesignFormat(designId, formatSpecifier)` — Get details for a specific format within a design
+- `generateImage(designId, body)` — Synchronously generate a single image; returns the file URL immediately
+- `generateMultiFormatMedia(designId, body)` — Asynchronously generate multiple formats (image, GIF, video, HTML5, PDF) in one call
+- `generateMultiPagePdf(designId, body)` — Asynchronously generate a multi-page print-ready PDF from a printer_multipage design
+- `getGenerationRequest(generationRequestId)` — Poll the status of an async generation request once
+- `waitForGenerationRequest(generationRequestId, options?)` — Poll with exponential backoff until complete; throws on timeout
+- `waitForDuplicationRequest(duplicateRequestId, options?)` — Poll template duplication until COMPLETED or ERROR
+- `getFile(bannerId)` — Retrieve metadata and CDN download URL for a generated file
+- `listFonts()` — List all fonts available in the workspace (Google Fonts + custom uploads)
+- `listProjects()` — List all projects in the workspace
+- `createProject(body)` — Create a new project to organise designs
+- `exportBanners(body)` — Asynchronously package a set of banners into a ZIP archive for download
+- `createDynamicImageUrl(designId, body)` — Create a live image URL that renders on-the-fly from query parameters
+- `duplicateWorkspaceTemplate(companyTemplateId, body)` — Copy a shared workspace template into a project
+- `getDuplicationRequest(duplicateRequestId)` — Poll the status of a template duplication request
+
+## Common use cases
+
+- **Personalised email headers**: Generate a unique image per recipient with their name, company logo, and offer — served via a dynamic image URL that renders on email open, no pre-generation needed.
+- **Bulk ad creative production**: Send a CSV of product data and generate hundreds of social media creatives (Facebook, Instagram, LinkedIn, Google Display) in every required format in a single async call.
+- **E-commerce product banners**: Dynamically swap product image, price, and promotional text into a branded template for each SKU, triggered automatically when inventory or pricing changes.
+- **Print-on-demand**: Generate personalised multi-page PDFs (brochures, catalogues, certificates) with different content per page, ready for commercial printing with crop marks and color profiles.
+- **HTML5 banner ads**: Produce animated HTML5 banners for ad networks (Google Campaign Manager, Sizmek) with click-tag and backup image, directly from your design templates.
+- **Website social cards**: Generate Open Graph and Twitter Card images on demand for any page, with the page title and thumbnail baked in.
+
+## Key features
+
+- TypeScript-first with types generated from the OpenAPI spec — full IntelliSense
+- Dual ESM and CJS output — works in any Node.js project
+- Zero-config singleton — no constructor, no setup beyond setting an env var
+- Auto-retry with exponential backoff on 429 and 5xx errors (3 retries, 30 s timeout — hardcoded)
+- Built-in polling helpers (`waitForGenerationRequest`, `waitForDuplicationRequest`) with exponential backoff, jitter, and configurable timeout (default 30 min, min 1 min)
+- Returns `{ data, error }` — never throws on HTTP errors
+
+## Links
+
+- API documentation: https://developers.abyssale.com/rest-api
+- Developer hub: https://developers.abyssale.com
+- npm package: https://www.npmjs.com/package/@abyssale/sdk
+- GitHub repository: https://github.com/abyssale/abyssale-sdk
