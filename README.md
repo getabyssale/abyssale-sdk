@@ -283,6 +283,7 @@ import type { Banner, Design, Font, GenerationRequestStatus, PollOptions } from 
 
 ## Links
 
+- [Abyssale](https://www.abyssale.com)
 - [Abyssale Developer Hub](https://developers.abyssale.com)
 - [API Reference](https://api-reference.abyssale.com/)
 - [Changelog](https://github.com/getabyssale/abyssale-sdk/releases)
