@@ -53,10 +53,10 @@
   ],
   "author": "Abyssale <dev@abyssale.com>",
   "homepage": "https://developers.abyssale.com",
-  "bugs": "https://github.com/abyssale/abyssale-sdk/issues",
+  "bugs": "https://github.com/getabyssale/abyssale-sdk/issues",
   "repository": {
     "type": "git",
-    "url": "https://github.com/abyssale/abyssale-sdk"
+    "url": "https://github.com/getabyssale/abyssale-sdk"
   },
   "license": "MIT",
   "publishConfig": {
