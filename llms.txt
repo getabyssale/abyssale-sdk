@@ -67,4 +67,4 @@ Set the environment variable `ABYSSALE_API_KEY` to your Abyssale API key.
 - API documentation: https://developers.abyssale.com/rest-api
 - Developer hub: https://developers.abyssale.com
 - npm package: https://www.npmjs.com/package/@abyssale/sdk
-- GitHub repository: https://github.com/abyssale/abyssale-sdk
+- GitHub repository: https://github.com/getabyssale/abyssale-sdk
