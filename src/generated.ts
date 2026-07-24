@@ -561,6 +561,19 @@ export interface components {
             /** @description Vertical offset in pixels (can be negative) */
             shadow_offset_y?: number;
         } & (components["schemas"]["TextElement"] | components["schemas"]["ImageElement"] | components["schemas"]["ButtonElement"] | components["schemas"]["LogoElement"] | components["schemas"]["ShapeElement"] | components["schemas"]["RatingElement"] | components["schemas"]["IllustrationElement"] | components["schemas"]["QRCodeElement"] | components["schemas"]["VideoElement"] | components["schemas"]["AudioElement"]);
+        /** @description Same as `Element`, but its image element also exposes AI generation properties (`text_to_image`, inpainting, background removal model) that are only available for asynchronous generation. */
+        AsyncElement: {
+            /** @description `true`, `false`. If true it hides the current element */
+            hidden?: boolean;
+            /** @description 6-8 digits hexadecimal color */
+            shadow_color?: string;
+            /** @description Blur in pixels */
+            shadow_blur?: number;
+            /** @description Horizontal offset in pixels (can be negative) */
+            shadow_offset_x?: number;
+            /** @description Vertical offset in pixels (can be negative) */
+            shadow_offset_y?: number;
+        } & (components["schemas"]["TextElement"] | components["schemas"]["AsyncImageElement"] | components["schemas"]["ButtonElement"] | components["schemas"]["LogoElement"] | components["schemas"]["ShapeElement"] | components["schemas"]["RatingElement"] | components["schemas"]["IllustrationElement"] | components["schemas"]["QRCodeElement"] | components["schemas"]["VideoElement"] | components["schemas"]["AudioElement"]);
         TextElement: {
             payload?: components["schemas"]["payload"];
             color?: components["schemas"]["color"];
@@ -639,7 +652,7 @@ export interface components {
             overlay_direction?: components["schemas"]["overlayDirection"];
             overlay_color_1?: components["schemas"]["overlayColor1"];
             overlay_color_2?: components["schemas"]["overlayColor2"];
-            /** @description Activates AI background removal when set to true. */
+            /** @description Activates AI background removal when set to true (Only available for asynchronous generation). */
             remove_bg?: boolean;
             /** @description Additional settings for background removal. */
             remove_bg_properties?: {
@@ -679,6 +692,95 @@ export interface components {
              * @example A sleek, modern glass villa situated in the middle of a minimalist lavender field.
              */
             text_to_image?: string;
+        };
+        /** @description Image element properties available for asynchronous generation, including AI image generation, inpainting, and background removal model selection. */
+        AsyncImageElement: {
+            image_url?: components["schemas"]["imageUrl"];
+            image_encoded?: components["schemas"]["imageEncoded"];
+            opacity?: components["schemas"]["opacity"];
+            fitting_type?: components["schemas"]["fittingType"];
+            alignment?: components["schemas"]["alignment"];
+            mask_name?: components["schemas"]["maskName"];
+            mask_properties?: components["schemas"]["maskProperties"];
+            filter_name?: components["schemas"]["filterName"];
+            filter_properties?: components["schemas"]["filterProperties"];
+            overlay_direction?: components["schemas"]["overlayDirection"];
+            overlay_color_1?: components["schemas"]["overlayColor1"];
+            overlay_color_2?: components["schemas"]["overlayColor2"];
+            /** @description Activates AI background removal when set to true. */
+            remove_bg?: boolean;
+            /** @description Additional settings for background removal. */
+            remove_bg_properties?: {
+                /** @description Trims the edges of the image after background removal. Default is false. */
+                remove_bg_crop?: boolean;
+                /**
+                 * @description Background removal model to use. Default is `bria-rmbg-2-0`.
+                 * @enum {string}
+                 */
+                model?: "bria-rmbg-2-0" | "birefnet" | "pixelcut" | "imageUtils" | "ideogram";
+            };
+            /** @description Activates AI-powered auto-focus to detect and focus on specified objects or people within the image. */
+            auto_focus?: boolean;
+            /** @description Additional settings for auto-focus. */
+            auto_focus_properties?: {
+                /**
+                 * @description Model used for focusing. `generic` for objects, `people` for human subjects, `face` for face detection. Default is `generic`.
+                 * @enum {string}
+                 */
+                model?: "generic" | "people" | "face";
+                /** @description List of object labels to focus on (generic model only). Uses Open Images Dataset labels. */
+                focus_objects?: string[];
+                /**
+                 * @description Specific to `people` model. Defines which part of the subject to frame.
+                 * @enum {string}
+                 */
+                focus_framing?: "face" | "head" | "shoulders" | "full_body";
+                /**
+                 * @description Specific to `people` model. Controls the zoom level applied. Default is `max`.
+                 * @enum {string}
+                 */
+                focus_zoom?: "off" | "low" | "medium" | "max";
+                /**
+                 * @description Specific to `people` model. When multiple subjects are detected, defines which one to target. Default is `all`.
+                 * @enum {string}
+                 */
+                focus_target?: "largest" | "left" | "middle" | "right" | "all";
+            };
+            /**
+             * @description Activates AI image generation (text-to-image) or AI-assisted image editing (inpainting).
+             *     If `image_url` (except default image) or `image_encoded` is provided, this property is ignored.
+             */
+            text_to_image?: boolean;
+            text_to_image_properties?: components["schemas"]["TextToImageProperties"];
+        };
+        /** @description Settings for AI image generation or inpainting. */
+        TextToImageProperties: {
+            /**
+             * @description Description of the image to generate, or of the edit to apply when `inpaint_images` is provided.
+             * @example A sleek, modern glass villa situated in the middle of a minimalist lavender field.
+             */
+            prompt: string;
+            /**
+             * @description Model used for generation. Default is `nano-banana-2`.
+             *     Allowed `ratio` and `quality` values depend on the selected model — see the
+             *     [Text to Image & Inpainting guide](https://developers.abyssale.com/rest-api/generation/element-properties/image#text-to-image-inpainting) for the full table.
+             * @enum {string}
+             */
+            model?: "gemini-3-pro" | "gemini-2.5-flash" | "gemini-3.1-flash" | "kling-image-o3" | "wan-2.7" | "gpt-image-1.5" | "flux-2-pro" | "qwen-2511" | "nano-banana" | "nano-banana-2" | "nano-banana-pro" | "seedream-4.5" | "gpt-image-2" | "grok-imagine" | "flux-2-klein-9b";
+            /**
+             * @description Aspect ratio or size of the output (e.g. `16:9`, `square_hd`, `1024x1024`).
+             *     Allowed values depend on the selected `model` — see the
+             *     [Text to Image & Inpainting guide](https://developers.abyssale.com/rest-api/generation/element-properties/image#text-to-image-inpainting).
+             */
+            ratio?: string;
+            /**
+             * @description Output quality/resolution (e.g. `1K`, `high`). Only supported by some models — see the
+             *     [Text to Image & Inpainting guide](https://developers.abyssale.com/rest-api/generation/element-properties/image#text-to-image-inpainting).
+             *     Ignored if the selected model does not support it.
+             */
+            quality?: string;
+            /** @description URL(s) of the image(s) to edit. When provided, switches generation to inpainting mode instead of pure text-to-image. */
+            inpaint_images?: string[];
         };
         LogoElement: {
             image_url?: components["schemas"]["imageUrl"];
@@ -742,6 +844,10 @@ export interface components {
         /** @description A `dictionary` containing all elements with properties you would like to override form the default design (keys correspond to layer names) */
         Elements: {
             [key: string]: components["schemas"]["RootElement"] | components["schemas"]["Element"] | components["schemas"]["VideoElement"] | components["schemas"]["AudioElement"];
+        };
+        /** @description Same as `Elements`, but its image element also exposes AI generation properties (`text_to_image`, inpainting, background removal model) that are only available for asynchronous generation. */
+        AsyncElements: {
+            [key: string]: components["schemas"]["RootElement"] | components["schemas"]["AsyncElement"] | components["schemas"]["VideoElement"] | components["schemas"]["AudioElement"];
         };
         /** @description A `dictionary` containing all pages with properties you would like to override form the default design (keys correspond to layer names) */
         Pages: {
@@ -1637,7 +1743,7 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": {
-                    elements: components["schemas"]["Elements"];
+                    elements: components["schemas"]["AsyncElements"];
                     /**
                      * @description **Format IDs you would like to generate**.
                      *

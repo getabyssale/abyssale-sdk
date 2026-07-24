@@ -20,12 +20,49 @@ export type DuplicationRequestStatus =
 export type DuplicatedDesign = components["schemas"]["DuplicatedDesign"];
 export type Elements = components["schemas"]["Elements"];
 export type Pages = components["schemas"]["Pages"];
+/** Settings for `text_to_image_properties` on an image element — see `generateMultiFormatMedia`. */
+export type TextToImageProperties = components["schemas"]["TextToImageProperties"];
 
 // ── Body type helpers (extracted from operations for cleaner method signatures) ─
 type GenerateImageBody =
   operations["generateImage"]["requestBody"]["content"]["application/json"];
-type GenerateMultiFormatMediaBody =
-  operations["generateMultiFormatMedia"]["requestBody"]["content"]["application/json"];
+
+// Image element accepted by generateMultiFormatMedia — same shape as the image
+// element in `Elements`, except `text_to_image` takes a boolean + `text_to_image_properties`
+// (AI generation / inpainting) instead of a bare prompt string. This only takes
+// effect here: AI image generation/inpainting is async-only and ignored by generateImage.
+type ImageElementWithAI = Omit<components["schemas"]["ImageElement"], "text_to_image"> & {
+  text_to_image?: boolean;
+  text_to_image_properties?: TextToImageProperties;
+};
+type ElementWithAI = Pick<
+  components["schemas"]["Element"],
+  "hidden" | "shadow_color" | "shadow_blur" | "shadow_offset_x" | "shadow_offset_y"
+> &
+  (
+    | components["schemas"]["TextElement"]
+    | ImageElementWithAI
+    | components["schemas"]["ButtonElement"]
+    | components["schemas"]["LogoElement"]
+    | components["schemas"]["ShapeElement"]
+    | components["schemas"]["RatingElement"]
+    | components["schemas"]["IllustrationElement"]
+    | components["schemas"]["QRCodeElement"]
+    | components["schemas"]["VideoElement"]
+    | components["schemas"]["AudioElement"]
+  );
+type GenerateMultiFormatMediaBody = Omit<
+  operations["generateMultiFormatMedia"]["requestBody"]["content"]["application/json"],
+  "elements"
+> & {
+  elements: {
+    [key: string]:
+      | components["schemas"]["RootElement"]
+      | ElementWithAI
+      | components["schemas"]["VideoElement"]
+      | components["schemas"]["AudioElement"];
+  };
+};
 type GenerateMultiPagePdfBody =
   operations["generateMultiPagePdf"]["requestBody"]["content"]["application/json"];
 type ExportBannersBody =
@@ -134,11 +171,42 @@ const abyssale = {
    * Asynchronously generate one or more formats (image, GIF, video, HTML5, PDF).
    * Returns a `generation_request_id` to poll with `getGenerationRequest`, or
    * provide a `callback_url` to receive a webhook when complete.
+   *
+   * Image elements also accept `text_to_image` / `text_to_image_properties` here —
+   * AI image generation and inpainting are only available on this async endpoint,
+   * not on `generateImage`. Ignored if `image_url` or `image_encoded` is also set.
+   *
+   * `model`/`ratio`/`quality` are optional and default to the design's own element
+   * settings — only set them to override. See the model compatibility table:
+   * https://developers.abyssale.com/rest-api/generation/element-properties/image#text-to-image-inpainting
    * @example
    * const { data } = await abyssale.generateMultiFormatMedia(designId, {
    *   elements: { title: { payload: 'Summer Sale' } },
    *   template_format_names: ['facebook-feed', 'instagram-post'],
    *   callback_url: 'https://your-webhook.com/abyssale',
+   * });
+   * @example
+   * // AI-generated background image (text-to-image)
+   * const { data } = await abyssale.generateMultiFormatMedia(designId, {
+   *   elements: {
+   *     background: {
+   *       text_to_image: true,
+   *       text_to_image_properties: { prompt: 'A sleek, modern glass villa in minimalist lavender' },
+   *     },
+   *   },
+   * });
+   * @example
+   * // Inpainting — edit an existing image from a prompt
+   * const { data } = await abyssale.generateMultiFormatMedia(designId, {
+   *   elements: {
+   *     product_image: {
+   *       text_to_image: true,
+   *       text_to_image_properties: {
+   *         prompt: 'enhance the product by adding background decoration',
+   *         inpaint_images: ['https://cdn.example.com/product.jpg'],
+   *       },
+   *     },
+   *   },
    * });
    */
   generateMultiFormatMedia: (

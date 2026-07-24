@@ -101,6 +101,41 @@ for (const banner of result.banners) {
 }
 ```
 
+### Text-to-image and inpainting (async only)
+
+Image elements on `generateMultiFormatMedia` accept `text_to_image` / `text_to_image_properties` — Abyssale generates the image from a prompt instead of using `image_url`. Passing `inpaint_images` switches the same mode to inpainting, where the prompt describes the edit to apply to those source image(s) instead. Not available on the synchronous `generateImage`; ignored on an element that also sets `image_url` or `image_encoded`.
+
+```ts
+import abyssale from '@abyssale/sdk';
+
+// Text-to-image — generate a new background from a prompt
+const { data: request } = await abyssale.generateMultiFormatMedia('design-id', {
+  elements: {
+    background: {
+      text_to_image: true,
+      text_to_image_properties: {
+        prompt: 'A sleek, modern glass villa in minimalist lavender',
+      },
+    },
+  },
+});
+
+// Inpainting — edit an existing image from a prompt
+const { data: inpaintingRequest } = await abyssale.generateMultiFormatMedia('design-id', {
+  elements: {
+    product_image: {
+      text_to_image: true,
+      text_to_image_properties: {
+        prompt: 'enhance the product by adding background decoration',
+        inpaint_images: ['https://cdn.example.com/product.jpeg'],
+      },
+    },
+  },
+});
+```
+
+`prompt` is required whenever `text_to_image: true`; the API returns a `400` if it's missing. `model`, `ratio`, and `quality` are optional and default to whatever is already configured on the design's element — only set them to override. See the [element properties guide](https://developers.abyssale.com/rest-api/generation/element-properties/image#text-to-image-inpainting) for the full list of models and which `ratio`/`quality` values each one supports.
+
 ### Dynamic image URL for personalised emails
 
 ```ts
@@ -199,6 +234,7 @@ abyssale.getDesignFormat(designId, format) // GET /designs/{designId}/formats/{f
 abyssale.generateImage(designId, body)
 
 // Asynchronous — returns generation_request_id; poll or use callback_url
+// Image elements here also support text_to_image / text_to_image_properties (AI generation + inpainting)
 abyssale.generateMultiFormatMedia(designId, body)
 abyssale.generateMultiPagePdf(designId, body)       // printer_multipage designs only
 
@@ -279,6 +315,9 @@ All request and response types are generated from the OpenAPI spec and fully exp
 
 ```ts
 import type { Banner, Design, Font, GenerationRequestStatus, PollOptions } from '@abyssale/sdk';
+
+// text_to_image_properties settings for an image element (generateMultiFormatMedia only)
+import type { TextToImageProperties } from '@abyssale/sdk';
 ```
 
 ## Links
