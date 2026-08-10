@@ -54,7 +54,7 @@ ABYSSALE_API_KEY=your-key node your-script.js
 
 **Print-on-demand** — Generate personalised multi-page PDFs (brochures, catalogues, certificates) with different content per page, ready for commercial printing with crop marks and color profiles.
 
-**HTML5 banner ads** — Produce animated HTML5 banners for ad networks (Google Campaign Manager, Sizmek) with click-tag and backup image, directly from your design templates.
+**HTML5 banner ads** — Produce animated HTML5 banners for ad networks (Google Ads, Adform, Amazon Ads, AdRoll) with click-tag and backup image, directly from your design templates.
 
 **Website social cards** — Generate Open Graph and Twitter Card images on demand for any page, with the page title and thumbnail baked in, triggered by a CDN edge function or serverless handler.
 
@@ -69,7 +69,7 @@ const { data, error } = await abyssale.generateImage('design-id', {
   template_format_name: 'instagram-square',
   elements: {
     headline: { payload: 'Summer Sale — 50% Off' },
-    product_image: { url: 'https://cdn.example.com/product.jpg' },
+    product_image: { image_url: 'https://cdn.example.com/product.jpg' },
     cta_button: { payload: 'Shop Now', background_color: '#FF6B35' },
   },
 });
@@ -87,7 +87,7 @@ import abyssale from '@abyssale/sdk';
 const { data: request, error } = await abyssale.generateMultiFormatMedia('design-id', {
   elements: {
     headline: { payload: 'New Product Launch' },
-    logo: { url: 'https://cdn.example.com/logo.png' },
+    logo: { image_url: 'https://cdn.example.com/logo.png' },
   },
 });
 
@@ -146,7 +146,7 @@ const { data } = await abyssale.exportBanners({
   callback_url: 'https://your-server.com/webhooks/export-done',
 });
 
-console.log('Export queued:', data.export_request_id);
+console.log('Export queued:', data.export_id);
 ```
 
 ## Error handling
@@ -161,6 +161,25 @@ if (error) {
   // error is typed from the OpenAPI spec
 } else {
   console.log(data.file.cdn_url);
+}
+```
+
+Error bodies carry a human-readable `message` and a machine-readable `id` code
+(e.g. `template_not_found`, `format_not_found`, `rate_limit_exceeded`) — branch on `id`,
+not on `message`. On `400 invalid_payload` responses, an additional flat `errors` array
+details each failing field:
+
+```json
+{
+  "message": "One or more request fields are invalid.",
+  "id": "invalid_payload",
+  "errors": [
+    {
+      "path": "elements.root.background_color",
+      "code": "invalid_payload",
+      "message": "Must be a 6 or 8 hexadecimal color (given: #zzz)"
+    }
+  ]
 }
 ```
 
@@ -191,6 +210,16 @@ abyssale.listDesigns(query?)               // GET /designs
 abyssale.getDesign(designId)               // GET /designs/{designId}
 abyssale.getDesignFormat(designId, format) // GET /designs/{designId}/formats/{format}
 ```
+
+Designs always belong to a project — listed items carry `project_id` / `project_name`
+(the old `category_id` / `category_name` fields are deprecated aliases kept for
+compatibility).
+
+**Multipage print designs (`printer_multipage`) return a different shape** from
+`getDesign`: they have no formats — the response carries `pages[]` and
+`elements_per_page` (an object keyed `page_1 … page_N`) *instead of* `formats`,
+`elements`, `variables` and `dynamic_image_url`. `getDesignFormat` does not apply to
+them and answers `404 format_not_found` for every specifier.
 
 ### Asset generation
 
@@ -241,10 +270,16 @@ abyssale.createDynamicImageUrl(designId, body)  // POST /designs/{designId}/dyna
 ### Workspace templates
 
 ```ts
+abyssale.listWorkspaceTemplates(query?)                    // GET /workspace-templates
+abyssale.listWorkspaceTemplateCategories()                 // GET /workspace-template-categories
 abyssale.duplicateWorkspaceTemplate(templateId, body)      // POST /workspace-templates/{id}/use
 abyssale.getDuplicationRequest(duplicateRequestId)         // GET /design-duplication-requests/{id}
 abyssale.waitForDuplicationRequest(duplicateRequestId, options?)  // polls until COMPLETED or ERROR
 ```
+
+Workspace templates are organisation-level master designs, grouped into optional
+*categories* (unlike designs, which always live in a *project*). They never appear in
+`listDesigns` — duplicate one into a project to work on it as a design.
 
 ## Polling helpers
 
@@ -278,7 +313,7 @@ console.log(result.designs);
 All request and response types are generated from the OpenAPI spec and fully exported:
 
 ```ts
-import type { Banner, Design, Font, GenerationRequestStatus, PollOptions } from '@abyssale/sdk';
+import type { Banner, Design, Font, WorkspaceTemplate, GenerationRequestStatus, PollOptions } from '@abyssale/sdk';
 ```
 
 ## Links

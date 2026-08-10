@@ -16,7 +16,11 @@ export interface paths {
          * @description Retrieve all designs available in your Abyssale workspace. Each design defines
          *     the visual layout, available formats (dimensions), and configurable elements
          *     (text, images, shapes, etc.) that can be overridden during image generation.
-         *     Filter by design type or project category using query parameters.
+         *     Filter by design type or project using query parameters.
+         *
+         *     A design lives in a **project**. Organisation-level master designs are *workspace
+         *     templates*, live in a **category**, and are listed by `GET /workspace-templates`
+         *     instead — they never appear here.
          */
         get: operations["listDesigns"];
         put?: never;
@@ -39,6 +43,29 @@ export interface paths {
          * @description Retrieve the full specification of a design: its formats (dimensions and preview URLs),
          *     all configurable elements with their properties, and any template variables defined
          *     in text layers. Use this endpoint to discover what data to send in a generation request.
+         *
+         *     For printer designs, each format additionally carries its print settings read-only:
+         *     `dpi` (integer render DPI computed at import time, capped at 300), and `bleed_size` /
+         *     `safe_size` (floats in the format's unit, present only when the corresponding zone is
+         *     enabled).
+         *
+         *     For animated designs, the response additionally carries the animation model: a
+         *     top-level `animation` object (`duration` — timeline length in seconds; `screenshot_at_s`
+         *     — the HTML5 backup-screenshot moment, nullable on legacy designs), a per-element
+         *     `animation` object (`start_at_s`, `end_at_s`, `tweens` `[{id, type, keyframes}]` with
+         *     raw keyframe objects) on elements that carry timing or tweens, and video/audio media
+         *     attributes (`video_url`/`audio_url`, `video_duration`, `video_muted`/`audio_muted`,
+         *     `max_volume`) in the standard attribute shape.
+         *
+         *     **Multipage print designs (`printer_multipage`) return a different shape.** A multipage
+         *     design has no formats — each page is one format row — so the response carries `pages` and
+         *     `elements_per_page` **instead of** `formats`, `elements`, `variables` and
+         *     `dynamic_image_url`. A client coded against `formats[]` will not work on a multipage
+         *     design. `pages[]` items carry `id` (`page_1 … page_N`), `width`, `height`, `unit`,
+         *     `preview_url` and the read-only `dpi`/`bleed_size`/`safe_size` print settings;
+         *     `elements_per_page` is an **object keyed by page id** (not an array), each value being
+         *     that page's element list. Group layers are not part of this response — read
+         *     `GET /designs/{designId}/formats/{formatSpecifier}` (or `as-import`) to see them.
          */
         get: operations["getDesign"];
         put?: never;
@@ -61,6 +88,21 @@ export interface paths {
          * @description Retrieve detailed information for a specific format within a design, including
          *     dimensions, unit, preview URL, dynamic image URL, element layout, and variables.
          *     Useful for inspecting a single format before generating or building dynamic image URLs.
+         *
+         *     For printer designs the response additionally carries the format's print settings
+         *     read-only: `dpi` (integer render DPI computed at import time, capped at 300), and
+         *     `bleed_size` / `safe_size` (floats in the format's unit, present only when the
+         *     corresponding zone is enabled).
+         *
+         *     For animated designs the response additionally carries the design's `animation`
+         *     object (`duration`, `screenshot_at_s` — seconds), per-element `animation`
+         *     timing/tween data, and video/audio media attributes — the same read surface as
+         *     `GET /designs/{designId}`.
+         *
+         *     **Multipage print designs (`printer_multipage`):** a multipage design is one document —
+         *     it has **no formats**, and its pages are not addressable through this endpoint. Any
+         *     `formatSpecifier` yields `404` with `id: format_not_found`. Read the whole document with
+         *     `GET /designs/{designId}` or export it with `GET /designs/{designId}/as-import`.
          */
         get: operations["getDesignFormat"];
         put?: never;
@@ -82,7 +124,7 @@ export interface paths {
         put?: never;
         /**
          * Create a dynamic image URL
-         * @description Creates a dynamic image URL for a given design. Only one dynamic image is allowed per design. Subsequent calls return the existing dynamic image. Use `enable_rate_limit` in the request body to enable API rate limiting for this image & `enable_production_mode` to enable production mode (default is test mode).
+         * @description Creates a dynamic image URL for a given design (`static` designs only). Only one dynamic image is allowed per design — subsequent calls return the existing dynamic image (200 instead of 201). `enable_rate_limit` limits each visitor (IP + browser fingerprint) to 5 distinct variants per 24 h. `enable_production_mode` switches from test mode (variants saved to the workspace, server-side cache, 10 req/s per image) to production mode (built for scale: unlimited, unthrottled generation — only workspace credits and bandwidth apply; variants not saved, every request rendered fresh).
          */
         post: operations["createDynamicImageUrl"];
         delete?: never;
@@ -129,9 +171,16 @@ export interface paths {
          *     the generated file URL immediately in the response.
          *
          *     Best for: real-time image generation, single-asset workflows, or when you need
-         *     the result inline without polling.
+         *     the result inline without polling. The rendering budget is hard-capped at **10
+         *     seconds**: the call returns the finished file within that window or fails with
+         *     `500 internal_server_error` (typical renders take tens of milliseconds).
          *
          *     For bulk generation across multiple formats, use the asynchronous endpoint instead.
+         *
+         *     **All body fields are optional** — omit `elements` to render the design's saved
+         *     default content. A `template_format_name` that does not exist on the design answers
+         *     `404` with `id: format_not_found` (the format is addressed as a resource, so this is
+         *     a 404 by contract, not a 400).
          */
         post: operations["generateImage"];
         delete?: never;
@@ -156,11 +205,19 @@ export interface paths {
          *     marketing campaigns, and programmatic ad creative generation at scale.
          *
          *     Specify one or more format IDs to generate, or omit the list to generate all
-         *     formats defined in the design. Provide a `callback_url` to receive a webhook
+         *     formats defined in the design. Batches are queued and worker-driven, with no hard
+         *     completion bound — most complete within a couple of minutes; rely on the webhook or
+         *     polling, never a fixed wait. Provide a `callback_url` to receive a webhook
          *     notification when generation is complete, or poll
          *     `GET /generation-request/{generationRequestId}` for status.
          *
          *     You can find available formats and elements by calling `GET /designs/{designId}`.
+         *
+         *     **All body fields are optional** — omit `elements` to render the design's saved
+         *     default content, and omit `template_format_names` to generate every format. A
+         *     `template_format_names` entry that does not exist on the design answers `404` with
+         *     `id: format_not_found` (the format is addressed as a resource, so this is a 404 by
+         *     contract, not a 400).
          */
         post: operations["generateMultiFormatMedia"];
         delete?: never;
@@ -201,8 +258,9 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Export banners as ZIP archive (asynchronous)
-         * @description Asynchronously package a set of previously generated banners into a single ZIP
+         * Export generated assets as a ZIP archive (asynchronous)
+         * @description Asynchronously package a set of previously generated assets — any output type
+         *     (JPEG, PNG, WEBP, AVIF, PDF, MP4, GIF, HTML5 bundle) — into a single ZIP
          *     archive for download. Provide a `callback_url` to receive a webhook notification
          *     when the export is ready, containing the archive URL.
          */
@@ -288,6 +346,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/workspace-templates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List all workspace templates
+         * @description Retrieve the organisation-level master designs shared across your workspace.
+         *
+         *     A workspace template lives in a **category** (`category_id`), not a project — it
+         *     belongs to the organisation until you duplicate it into a project with
+         *     `POST /workspace-templates/{companyTemplateId}/use`. Designs, which do live in a
+         *     project, are listed by `GET /designs`; the two listings never overlap.
+         *
+         *     Items have the same shape as a design, except the grouping fields are named
+         *     `category_id` / `category_name`.
+         */
+        get: operations["listWorkspaceTemplates"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/workspace-template-categories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List workspace template categories
+         * @description The categories that group your workspace templates. Use an `id` from here as the
+         *     `category_id` filter on `GET /workspace-templates`.
+         *
+         *     This is the workspace-template counterpart of `GET /projects`, which groups designs.
+         */
+        get: operations["listWorkspaceTemplateCategories"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/workspace-templates/{companyTemplateId}/use": {
         parameters: {
             query?: never;
@@ -340,21 +449,28 @@ export interface components {
             /** @description Human-readable error message. */
             message: string;
             /**
-             * @description Machine-readable error code identifier. Present on most errors.
+             * @description Machine-readable error code identifier. Always present on errors the API
+             *     validates itself — branch on this rather than on `message`.
              *
              *     Common values: `template_not_found`, `template_not_static`, `format_not_found`,
-             *     `cannot_build_banner`, `rate_limit_exceeded`, `unauthorized`, `api_access_denied`,
-             *     `endpoint_not_found`, `body_validation_errors`, `internal_server_error`.
+             *     `invalid_payload`, `invalid_filetype`, `more_than_one_format`,
+             *     `cannot_build_banner`, `rate_limit_exceeded`, `generation_request_not_found`,
+             *     `generation_request_gone`, `visual_not_found`, `unauthorized`,
+             *     `api_access_denied`, `endpoint_not_found`, `internal_server_error`.
              */
             id?: string;
             /**
-             * @description Field-level validation errors, present on 400 responses when `message` is
-             *     `"Invalid parameters"`. Each entry identifies the failing field and the reason.
+             * @description Field-level validation detail, present on 400 `invalid_payload` responses.
+             *     A FLAT array of problem objects — object keys dotted, array indices bracketed
+             *     (`formats[0].layers`, `elements.root.background_color`) — the same item shape
+             *     as the design-import error contract, so one parser reads every API error.
              */
             errors?: {
-                /** @description Dot-notation path to the invalid field (e.g. `elements.root.background_color`). */
-                field: string;
-                /** @description Human-readable reason the field failed validation. */
+                /** @description Location of the failing field (dotted keys, bracketed indices). */
+                path: string;
+                /** @description Machine-readable problem code (e.g. `invalid_payload`, `missing_required`, `unknown_field`, `unknown_enum_value`, `wrong_type`, `out_of_range`). */
+                code: string;
+                /** @description Human-readable reason. */
                 message: string;
             }[];
         };
@@ -378,6 +494,31 @@ export interface components {
             file: components["schemas"]["File"];
             format?: components["schemas"]["Format"];
             template?: components["schemas"]["Design"];
+            /** @description The design's project — present when the design has one. */
+            project?: {
+                /** Format: uuid */
+                id?: string;
+                name?: string;
+                created_at_ts?: number;
+            };
+            /**
+             * @deprecated
+             * @description Deprecated — same information as `file.type` / `file.url`.
+             */
+            image?: {
+                type?: string;
+                url?: string;
+            };
+            /** @description Platform edit URL — only for visuals bookmarked or downloaded in the platform. */
+            edit_url?: string;
+            /** @description Platform view URL — only for visuals bookmarked or downloaded in the platform. */
+            view_url?: string;
+            /** @description Present when the visual carries a review status. */
+            visual_status?: {
+                status?: string;
+                status_updated_at_ts?: number;
+                reason?: string;
+            };
         };
         File: {
             /**
@@ -385,7 +526,7 @@ export interface components {
              * @example jpeg
              * @enum {string}
              */
-            type: "jpeg" | "png" | "pdf" | "gif" | "mp4" | "webm" | "zip";
+            type: "jpeg" | "png" | "pdf" | "gif" | "mp4" | "zip";
             /**
              * @description URL of the banner (useful to download the image).
              * @example https://production-banners.s3.eu-west-1.amazonaws.com/demo/996739f4-b563-428a-a6e8-ec3cb8bd03d4.jpeg
@@ -401,13 +542,20 @@ export interface components {
              * @example 996739f4-b563-428a-a6e8-ec3cb8bd03d4.jpeg
              */
             filename?: string;
+            /** @description Backup JPEG URL — present only when `type` is `zip` (HTML5 output). */
+            fallback_image_url?: string;
         };
         Format: {
             /**
-             * @description Identifier/name of the format.
+             * @description Identifier/name of the format. Absent on multi-page print visuals.
              * @example facebook-post
              */
             id: string;
+            /**
+             * @description Unit of `width`/`height` — `px`, or `mm`/`in` on print designs.
+             * @example px
+             */
+            unit?: string;
             /**
              * @description Width of the format.
              * @example 1200
@@ -448,10 +596,109 @@ export interface components {
              */
             updated_at: number;
             /**
-             * @description Design Category
+             * Format: uuid
+             * @description Unique identifier (UUID) of the project the design belongs to.
+             * @example 9d1f2b7c-5a44-4c3e-9f21-0b8e6d4a1c73
+             */
+            project_id: string;
+            /**
+             * @description Name of the project the design belongs to.
+             * @example Fall campaigns
+             */
+            project_name: string;
+            /**
+             * Format: uuid
+             * @deprecated
+             * @description Deprecated alias of `project_id`. A design belongs to a project; use `project_id`.
+             * @example 9d1f2b7c-5a44-4c3e-9f21-0b8e6d4a1c73
+             */
+            category_id?: string | null;
+            /**
+             * @deprecated
+             * @description Deprecated alias of `project_name`. A design belongs to a project; use `project_name`.
              * @example Fall campaigns
              */
             category_name?: string | null;
+        };
+        /**
+         * @description A workspace template — an organisation-level master design. Same underlying object
+         *     as a Design, but grouped into a *category* rather than a *project*, and not
+         *     addressable through the Designs API until duplicated into a project.
+         */
+        WorkspaceTemplate: {
+            /**
+             * Format: uuid
+             * @description Unique identifier (UUID) of the workspace template.
+             * @example 64238d01-d402-474b-8c2d-fbc957e9d290
+             */
+            id: string;
+            /**
+             * @description Name of the workspace template.
+             * @example Brand master
+             */
+            name: string;
+            /**
+             * @description Type of the workspace template
+             * @example static
+             * @enum {string}
+             */
+            type: "static" | "animated" | "printer" | "printer_multipage";
+            /**
+             * @description Timestamp of when the workspace template has been created.
+             * @example 1649942114
+             */
+            created_at: number;
+            /**
+             * @description Timestamp of when the workspace template has been updated for the last time.
+             * @example 1649942114
+             */
+            updated_at: number;
+            /**
+             * Format: uri
+             * @description Preview Image URL of the first format
+             */
+            preview_url?: string;
+            /**
+             * Format: uuid
+             * @description Unique identifier (UUID) of the workspace category it belongs to, or `null` when the
+             *     template sits at the root of the workspace. Unlike a design's project, a category is
+             *     **optional** — most workspace templates have none.
+             * @example 1c7a9e35-0b62-4d18-8f4a-2e5c7b90d146
+             */
+            category_id?: string | null;
+            /**
+             * @description Name of the workspace category, or `null` when the template is at the root.
+             * @example Brand assets
+             */
+            category_name?: string | null;
+        };
+        WorkspaceTemplateCategory: {
+            /**
+             * Format: uuid
+             * @description Unique identifier (UUID) of the workspace category.
+             * @example 1c7a9e35-0b62-4d18-8f4a-2e5c7b90d146
+             */
+            id: string;
+            /**
+             * @description Name of the workspace category.
+             * @example Brand assets
+             */
+            name: string;
+            /**
+             * @description Display colour of the category.
+             * @example #4F46E5
+             */
+            color?: string;
+            /**
+             * @description Display icon of the category.
+             * @example star
+             */
+            icon?: string;
+            /**
+             * @description Timestamp of when the category has been created.
+             * @example 1649942114
+             */
+            created_at?: number;
         };
         DesignFormat: {
             /**
@@ -492,6 +739,35 @@ export interface components {
              * @example https://img.abyssale.com/ecf1fe8c-5392-48c2-b6d2-665183a18fe5/9b57d65e-eb2c-4a74-a51e-4482917c248a
              */
             dynamic_image_url?: string;
+            /**
+             * @description Printer designs only. Render DPI of the format, computed at import time (capped at 300; large formats degrade to stay within the renderer's pixel budget). Read-only — not an import field.
+             * @example 300
+             */
+            dpi?: number;
+            /**
+             * @description Printer designs only. Bleed size as a float in the format's unit (mm/in). Present only when bleed is enabled on the format.
+             * @example 3.5
+             */
+            bleed_size?: number;
+            /**
+             * @description Printer designs only. Safe-zone size as a float in the format's unit (mm/in). Present only when the safe zone is enabled on the format.
+             * @example 5
+             */
+            safe_size?: number;
+        };
+        /** @description Animated designs only. The design's timeline, read-only (all values in seconds). */
+        DesignAnimation: {
+            /**
+             * @description Timeline length in seconds.
+             * @example 8
+             */
+            duration?: number | null;
+            /**
+             * @description The moment the HTML5 backup screenshot is taken (seconds). Null on legacy designs
+             *     that never stored it; always set on imported designs.
+             * @example 8
+             */
+            screenshot_at_s?: number | null;
         };
         DesignElement: {
             /**
@@ -505,6 +781,23 @@ export interface components {
              * @enum {string}
              */
             type: "container" | "text" | "button" | "image" | "logo" | "shape" | "illustration" | "rating" | "qrcode" | "chart" | "video" | "audio";
+            /**
+             * @description Animated designs only; present when the element carries timeline timing or tweens.
+             *     `keyframes` items are raw objects (several keyframe schema generations coexist).
+             */
+            animation?: {
+                /** @example 0.79 */
+                start_at_s?: number | null;
+                /** @example 8 */
+                end_at_s?: number | null;
+                tweens?: {
+                    /** @example tb-text_0-slide_2 */
+                    id?: string;
+                    /** @enum {string} */
+                    type?: "slide" | "fade" | "scale" | "rotate" | "audioFade" | "textEffect";
+                    keyframes?: Record<string, never>[];
+                }[];
+            };
             /** @description List of all attributes */
             attributes: {
                 /**
@@ -561,6 +854,19 @@ export interface components {
             /** @description Vertical offset in pixels (can be negative) */
             shadow_offset_y?: number;
         } & (components["schemas"]["TextElement"] | components["schemas"]["ImageElement"] | components["schemas"]["ButtonElement"] | components["schemas"]["LogoElement"] | components["schemas"]["ShapeElement"] | components["schemas"]["RatingElement"] | components["schemas"]["IllustrationElement"] | components["schemas"]["QRCodeElement"] | components["schemas"]["VideoElement"] | components["schemas"]["AudioElement"]);
+        /** @description Same as `Element`, but its image element also exposes AI generation properties (`text_to_image`, inpainting, background removal model) that are only available for asynchronous generation. */
+        AsyncElement: {
+            /** @description `true`, `false`. If true it hides the current element */
+            hidden?: boolean;
+            /** @description 6-8 digits hexadecimal color */
+            shadow_color?: string;
+            /** @description Blur in pixels */
+            shadow_blur?: number;
+            /** @description Horizontal offset in pixels (can be negative) */
+            shadow_offset_x?: number;
+            /** @description Vertical offset in pixels (can be negative) */
+            shadow_offset_y?: number;
+        } & (components["schemas"]["TextElement"] | components["schemas"]["AsyncImageElement"] | components["schemas"]["ButtonElement"] | components["schemas"]["LogoElement"] | components["schemas"]["ShapeElement"] | components["schemas"]["RatingElement"] | components["schemas"]["IllustrationElement"] | components["schemas"]["QRCodeElement"] | components["schemas"]["VideoElement"] | components["schemas"]["AudioElement"]);
         TextElement: {
             payload?: components["schemas"]["payload"];
             color?: components["schemas"]["color"];
@@ -639,7 +945,7 @@ export interface components {
             overlay_direction?: components["schemas"]["overlayDirection"];
             overlay_color_1?: components["schemas"]["overlayColor1"];
             overlay_color_2?: components["schemas"]["overlayColor2"];
-            /** @description Activates AI background removal when set to true. */
+            /** @description Activates AI background removal when set to true (Only available for asynchronous generation). */
             remove_bg?: boolean;
             /** @description Additional settings for background removal. */
             remove_bg_properties?: {
@@ -679,6 +985,95 @@ export interface components {
              * @example A sleek, modern glass villa situated in the middle of a minimalist lavender field.
              */
             text_to_image?: string;
+        };
+        /** @description Image element properties available for asynchronous generation, including AI image generation, inpainting, and background removal model selection. */
+        AsyncImageElement: {
+            image_url?: components["schemas"]["imageUrl"];
+            image_encoded?: components["schemas"]["imageEncoded"];
+            opacity?: components["schemas"]["opacity"];
+            fitting_type?: components["schemas"]["fittingType"];
+            alignment?: components["schemas"]["alignment"];
+            mask_name?: components["schemas"]["maskName"];
+            mask_properties?: components["schemas"]["maskProperties"];
+            filter_name?: components["schemas"]["filterName"];
+            filter_properties?: components["schemas"]["filterProperties"];
+            overlay_direction?: components["schemas"]["overlayDirection"];
+            overlay_color_1?: components["schemas"]["overlayColor1"];
+            overlay_color_2?: components["schemas"]["overlayColor2"];
+            /** @description Activates AI background removal when set to true. */
+            remove_bg?: boolean;
+            /** @description Additional settings for background removal. */
+            remove_bg_properties?: {
+                /** @description Trims the edges of the image after background removal. Default is false. */
+                remove_bg_crop?: boolean;
+                /**
+                 * @description Background removal model to use. Default is `bria-rmbg-2-0`.
+                 * @enum {string}
+                 */
+                model?: "bria-rmbg-2-0" | "birefnet" | "pixelcut" | "imageUtils" | "ideogram";
+            };
+            /** @description Activates AI-powered auto-focus to detect and focus on specified objects or people within the image. */
+            auto_focus?: boolean;
+            /** @description Additional settings for auto-focus. */
+            auto_focus_properties?: {
+                /**
+                 * @description Model used for focusing. `generic` for objects, `people` for human subjects, `face` for face detection. Default is `generic`.
+                 * @enum {string}
+                 */
+                model?: "generic" | "people" | "face";
+                /** @description List of object labels to focus on (generic model only). Uses Open Images Dataset labels. */
+                focus_objects?: string[];
+                /**
+                 * @description Specific to `people` model. Defines which part of the subject to frame.
+                 * @enum {string}
+                 */
+                focus_framing?: "face" | "head" | "shoulders" | "full_body";
+                /**
+                 * @description Specific to `people` model. Controls the zoom level applied. Default is `max`.
+                 * @enum {string}
+                 */
+                focus_zoom?: "off" | "low" | "medium" | "max";
+                /**
+                 * @description Specific to `people` model. When multiple subjects are detected, defines which one to target. Default is `all`.
+                 * @enum {string}
+                 */
+                focus_target?: "largest" | "left" | "middle" | "right" | "all";
+            };
+            /**
+             * @description Activates AI image generation (text-to-image) or AI-assisted image editing (inpainting).
+             *     If `image_url` (except default image) or `image_encoded` is provided, this property is ignored.
+             */
+            text_to_image?: boolean;
+            text_to_image_properties?: components["schemas"]["TextToImageProperties"];
+        };
+        /** @description Settings for AI image generation or inpainting. */
+        TextToImageProperties: {
+            /**
+             * @description Description of the image to generate, or of the edit to apply when `inpaint_images` is provided.
+             * @example A sleek, modern glass villa situated in the middle of a minimalist lavender field.
+             */
+            prompt: string;
+            /**
+             * @description Model used for generation. Default is `nano-banana-2`.
+             *     Allowed `ratio` and `quality` values depend on the selected model — see the
+             *     [Text to Image & Inpainting guide](https://developers.abyssale.com/rest-api/generation/element-properties/image#text-to-image-inpainting) for the full table.
+             * @enum {string}
+             */
+            model?: "gemini-3-pro" | "gemini-2.5-flash" | "gemini-3.1-flash" | "kling-image-o3" | "wan-2.7" | "gpt-image-1.5" | "flux-2-pro" | "qwen-2511" | "nano-banana" | "nano-banana-2" | "nano-banana-pro" | "seedream-4.5" | "gpt-image-2" | "grok-imagine" | "flux-2-klein-9b";
+            /**
+             * @description Aspect ratio or size of the output (e.g. `16:9`, `square_hd`, `1024x1024`).
+             *     Allowed values depend on the selected `model` — see the
+             *     [Text to Image & Inpainting guide](https://developers.abyssale.com/rest-api/generation/element-properties/image#text-to-image-inpainting).
+             */
+            ratio?: string;
+            /**
+             * @description Output quality/resolution (e.g. `1K`, `high`). Only supported by some models — see the
+             *     [Text to Image & Inpainting guide](https://developers.abyssale.com/rest-api/generation/element-properties/image#text-to-image-inpainting).
+             *     Ignored if the selected model does not support it.
+             */
+            quality?: string;
+            /** @description URL(s) of the image(s) to edit. When provided, switches generation to inpainting mode instead of pure text-to-image. */
+            inpaint_images?: string[];
         };
         LogoElement: {
             image_url?: components["schemas"]["imageUrl"];
@@ -742,6 +1137,10 @@ export interface components {
         /** @description A `dictionary` containing all elements with properties you would like to override form the default design (keys correspond to layer names) */
         Elements: {
             [key: string]: components["schemas"]["RootElement"] | components["schemas"]["Element"] | components["schemas"]["VideoElement"] | components["schemas"]["AudioElement"];
+        };
+        /** @description Same as `Elements`, but its image element also exposes AI generation properties (`text_to_image`, inpainting, background removal model) that are only available for asynchronous generation. */
+        AsyncElements: {
+            [key: string]: components["schemas"]["RootElement"] | components["schemas"]["AsyncElement"] | components["schemas"]["VideoElement"] | components["schemas"]["AudioElement"];
         };
         /** @description A `dictionary` containing all pages with properties you would like to override form the default design (keys correspond to layer names) */
         Pages: {
@@ -1034,7 +1433,7 @@ export interface components {
          *     - `parallelogram`: The image will be rendered as a parallelogram. No additional property is available.
          * @enum {string}
          */
-        maskName: "circle" | "rounded_corners" | "blob" | "squircle" | "pentagon" | "hexagon" | "parallelogram";
+        maskName: "circle" | "rounded_corners" | "blob" | "squircle" | "pentagon" | "hexagon" | "parallelogram" | "window";
         /**
          * @description **When the rounded_corners mask is applied, this parameter allows to define the radius**.
          *
@@ -1252,7 +1651,7 @@ export interface operations {
             query?: {
                 /** @description Unique identifier (UUID) of a project. Filter designs by project. */
                 project_id?: string;
-                /** @description Filter designs by one of these types static, animated, printer, printer_multipage */
+                /** @description Filter designs by one of these types: static, animated, printer, printer_multipage. An unknown value is **ignored** and the full unfiltered list is returned — this never answers 400 (long-standing behavior existing integrations rely on). */
                 type?: "static" | "animated" | "printer" | "printer_multipage";
             };
             header?: never;
@@ -1329,6 +1728,25 @@ export interface operations {
                         variables?: {
                             [key: string]: string;
                         };
+                        animation?: components["schemas"]["DesignAnimation"];
+                        /**
+                         * @description **`printer_multipage` designs only** — returned *instead of* `formats`.
+                         *     The document's ordered pages. Each item carries `id` (`page_1 … page_N`),
+                         *     `width`, `height`, `unit`, `preview_url`, and the read-only print settings
+                         *     `dpi` / `bleed_size` / `safe_size` (the latter two present only when the
+                         *     corresponding zone is enabled). All pages of a multipage design share the
+                         *     same dimensions.
+                         */
+                        pages?: components["schemas"]["DesignFormat"][];
+                        /**
+                         * @description **`printer_multipage` designs only** — returned *instead of* `elements`.
+                         *     An object keyed by page id (`page_1 … page_N`), each value being that
+                         *     page's element list (group layers excluded — export the design with
+                         *     `as-import` to see them). Defaults to `{}`.
+                         */
+                        elements_per_page?: {
+                            [key: string]: components["schemas"]["DesignElement"][];
+                        };
                     };
                 };
             };
@@ -1348,7 +1766,10 @@ export interface operations {
             path: {
                 /** @description Unique identifier of the design */
                 designId: string;
-                /** @description Format name or UID */
+                /**
+                 * @description Format name or UID. For a `printer_multipage` design this is the page identifier
+                 *     `page_1 … page_N` (a multipage design has no formats — each page is one format row).
+                 */
                 formatSpecifier: string;
             };
             cookie?: never;
@@ -1400,6 +1821,22 @@ export interface operations {
                          * @example https://img.abyssale.com/673f0cb6-f1f6-4f7d-8ea2-4a0ed317efbe/6248b96f-581a-43f0-9863-85e1b7d0ec0a
                          */
                         dynamic_image_url?: string;
+                        /**
+                         * @description Printer designs only. Render DPI computed at import time (capped at 300). Read-only.
+                         * @example 300
+                         */
+                        dpi?: number;
+                        /**
+                         * @description Printer designs only. Bleed size (float, format unit); present only when bleed is enabled.
+                         * @example 3.5
+                         */
+                        bleed_size?: number;
+                        /**
+                         * @description Printer designs only. Safe-zone size (float, format unit); present only when enabled.
+                         * @example 5
+                         */
+                        safe_size?: number;
+                        animation?: components["schemas"]["DesignAnimation"];
                         design?: components["schemas"]["Design"];
                         /** @description List of all elements (& customizable properties) contained in the design format */
                         elements?: {
@@ -1523,7 +1960,14 @@ export interface operations {
                     "application/json": components["schemas"]["DynamicImageResponse"];
                 };
             };
-            /** @description Design Not found */
+            /** @description The design is not `static` (`template_not_static`) or not active (`template_not_active`). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Design Not found (`template_not_found`) */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -1575,19 +2019,25 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": {
-                    elements: components["schemas"]["Elements"];
+                    /** @description Element overrides keyed by layer name. On this synchronous endpoint every value MUST be an object — a bare string value answers `400 invalid_payload` (the asynchronous endpoint is lenient). */
+                    elements?: components["schemas"]["Elements"];
                     /**
-                     * @description Corresponds to the format ID you would like to generate (only mandatory when your design contains several formats).
+                     * @description Format ID to generate. Optional — when omitted, the design's first format is generated.
                      * @example facebook-post
                      */
                     template_format_name?: string;
                     /**
-                     * @description Output file type. Defaults to the design's configured type when omitted.
+                     * @description Output file type (`auto` ≡ omitted). When omitted: `jpeg`, or `png` when the format's background color is transparent.
                      * @enum {string}
                      */
                     image_file_type?: "png" | "jpeg" | "webp" | "avif" | "pdf" | "auto";
                     /**
-                     * @description Percentage of compression applied.
+                     * Format: uuid
+                     * @description Regenerate an existing visual in place, keeping its share URL (visual versioning). Unknown or unrelated visuals answer 404 (`visual_not_found`, `not_related_to_same_template`, `not_related_to_same_format`).
+                     */
+                    original_visual_id?: string;
+                    /**
+                     * @description Output quality, 1-100 — 100 is the best quality (least compression), 1 the smallest file. Despite the name, higher = better.
                      * @example 80
                      */
                     file_compression_level?: number;
@@ -1637,7 +2087,7 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": {
-                    elements: components["schemas"]["Elements"];
+                    elements?: components["schemas"]["AsyncElements"];
                     /**
                      * @description **Format IDs you would like to generate**.
                      *
@@ -1657,11 +2107,11 @@ export interface operations {
                      */
                     callback_url?: string;
                     /**
-                     * @description Output file type. Depends on the design type (static/animated/printer). Defaults to the design's configured type when omitted.
+                     * @description Output file type (`auto` ≡ omitted); must match the design type, else `400 invalid_filetype` — static → jpeg/png/webp/avif/pdf, animated → mp4/gif/html5, print → pdf. When omitted: static → jpeg (png when the format background is transparent); animated → mp4; print → pdf.
                      * @enum {string}
                      */
-                    image_file_type?: "png" | "jpeg" | "webp" | "avif" | "gif" | "pdf" | "html5" | "mp4" | "webm" | "auto";
-                    /** @description Percentage of compression applied. */
+                    image_file_type?: "png" | "jpeg" | "webp" | "avif" | "gif" | "pdf" | "html5" | "mp4" | "auto";
+                    /** @description Output quality, 1-100 — 100 is the best quality (least compression), 1 the smallest file. Despite the name, higher = better. */
                     file_compression_level?: number;
                     /** @description HTML5 output options (animated designs only) */
                     html5?: {
@@ -1670,7 +2120,7 @@ export interface operations {
                         /** @default https://www.abyssale.com */
                         click_tag?: string;
                         /**
-                         * @description Ad network identifier (e.g. "default", "doubleclick", "sizmek")
+                         * @description Ad network to optimize the HTML5 output for (e.g. `google-ads`, `google-marketing`, `adform`, `amazon-ads`, `adroll`). Free string — unknown values are validated downstream.
                          * @default default
                          */
                         ad_network?: string;
@@ -1744,7 +2194,7 @@ export interface operations {
     listFonts: {
         parameters: {
             query?: {
-                /** @description Filter fonts by type. Omit to return both Google and custom fonts. */
+                /** @description Filter fonts by type. Omit to return both Google and custom fonts. An unknown value is **ignored** and the full unfiltered list is returned — this never answers 400 (long-standing behavior existing integrations rely on). */
                 type?: "google" | "custom";
             };
             header?: never;
@@ -1912,8 +2362,15 @@ export interface operations {
                     "application/json": components["schemas"]["GenerationRequestStatus"];
                 };
             };
-            /** @description Generation request not found */
+            /** @description Generation request not found (`generation_request_not_found`) */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Gone — the generation request expired (`generation_request_gone`; requests are kept 7 days). */
+            410: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -1972,7 +2429,74 @@ export interface operations {
                     "application/json": components["schemas"]["ProjectSummary"];
                 };
             };
+            /** @description Bad Request — `name` is missing or outside 2–100 characters. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    listWorkspaceTemplates: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Unique identifier (UUID) of a workspace category. List the available ids with
+                 *     `GET /workspace-template-categories`. Categories are optional, so this filter only
+                 *     ever returns categorised templates — omit it to include those at the workspace root.
+                 */
+                category_id?: string;
+                /** @description Filter workspace templates by one of these types: static, animated, printer, printer_multipage. An unknown value is **ignored** and the full unfiltered list is returned — this never answers 400 (long-standing behavior existing integrations rely on). */
+                type?: "static" | "animated" | "printer" | "printer_multipage";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Ok */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceTemplate"][];
+                };
+            };
             400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    listWorkspaceTemplateCategories: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Ok */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceTemplateCategory"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
         };
     };
     duplicateWorkspaceTemplate: {

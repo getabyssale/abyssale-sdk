@@ -9,7 +9,7 @@ Types are auto-generated from the public OpenAPI spec at `https://api-reference.
 ```
 src/generated.ts       ← auto-generated types (openapi-typescript) — never edit manually
 src/middleware.ts      ← retry + timeout middleware
-src/index.ts           ← singleton export with all 17 named methods + public type re-exports
+src/index.ts           ← singleton export with all 19 named methods + public type re-exports
 dist/                  ← compiled output (gitignored) — built by tsup
 ```
 
@@ -36,6 +36,13 @@ npm test            # vitest
 2. Run `npm run generate` — pulls the latest spec and regenerates `src/generated.ts`
 3. Add a method to the `abyssale` object in `src/index.ts` following the existing pattern
 4. Add a JSDoc `@example` to the method
+
+**Deliberate exclusion — design import.** The design-import surface (`POST /designs/import/json`,
+`GET`/`PUT` `/designs/import/json/{importId}`, `GET /designs/{designId}/as-import` and every
+`DesignImport*` / `DesignAsImportResponse` schema) is in **Alpha** and intentionally NOT in the
+SDK. `src/generated.ts` is currently generated from a copy of the spec with those paths and
+schemas removed. When regenerating with `npm run generate`, strip them again before committing
+until the API is declared stable.
 
 ## Local development in another repo
 

@@ -9,6 +9,11 @@ export type Banner = components["schemas"]["Banner"];
 export type Design = components["schemas"]["Design"];
 export type DesignFormat = components["schemas"]["DesignFormat"];
 export type DesignElement = components["schemas"]["DesignElement"];
+export type DesignAnimation = components["schemas"]["DesignAnimation"];
+export type ErrorResponse = components["schemas"]["ErrorResponse"];
+export type WorkspaceTemplate = components["schemas"]["WorkspaceTemplate"];
+export type WorkspaceTemplateCategory =
+  components["schemas"]["WorkspaceTemplateCategory"];
 export type Font = components["schemas"]["Font"];
 export type ProjectSummary = components["schemas"]["ProjectSummary"];
 export type GenerationRequestStatus =
@@ -19,6 +24,7 @@ export type DuplicationRequestStatus =
   components["schemas"]["DuplicationRequestStatus"];
 export type DuplicatedDesign = components["schemas"]["DuplicatedDesign"];
 export type Elements = components["schemas"]["Elements"];
+export type AsyncElements = components["schemas"]["AsyncElements"];
 export type Pages = components["schemas"]["Pages"];
 
 // ── Body type helpers (extracted from operations for cleaner method signatures) ─
@@ -38,6 +44,9 @@ type DuplicateWorkspaceTemplateBody =
   operations["duplicateWorkspaceTemplate"]["requestBody"]["content"]["application/json"];
 type ListDesignsQuery = NonNullable<
   operations["listDesigns"]["parameters"]["query"]
+>;
+type ListWorkspaceTemplatesQuery = NonNullable<
+  operations["listWorkspaceTemplates"]["parameters"]["query"]
 >;
 
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -96,6 +105,9 @@ const abyssale = {
   /**
    * Get the full specification of a design: formats, elements, and variables.
    * Use this to discover what data to pass in a generation request.
+   * Multipage print designs (`printer_multipage`) have no formats — the response
+   * carries `pages` and `elements_per_page` (keyed `page_1 … page_N`) instead of
+   * `formats`, `elements`, `variables` and `dynamic_image_url`.
    * @example
    * const { data } = await abyssale.getDesign('64238d01-d402-474b-8c2d-fbc957e9d290');
    */
@@ -105,6 +117,8 @@ const abyssale = {
   /**
    * Get details for a specific format within a design.
    * `formatSpecifier` can be the format name (e.g. "facebook-post") or its UUID.
+   * Does not apply to `printer_multipage` designs (they have no formats):
+   * every specifier answers `404 format_not_found` — use `getDesign` instead.
    * @example
    * const { data } = await abyssale.getDesignFormat(designId, 'facebook-post');
    */
@@ -247,6 +261,26 @@ const abyssale = {
     }),
 
   // ── Workspace Templates ───────────────────────────────────────────────────
+
+  /**
+   * List the organisation-level master designs shared across the workspace.
+   * Optionally filter by `category_id` (see `listWorkspaceTemplateCategories`)
+   * or `type` (static, animated, printer, printer_multipage).
+   * Workspace templates never appear in `listDesigns` — duplicate one into a
+   * project with `duplicateWorkspaceTemplate` to work on it as a design.
+   * @example
+   * const { data, error } = await abyssale.listWorkspaceTemplates({ type: 'static' });
+   */
+  listWorkspaceTemplates: (query?: ListWorkspaceTemplatesQuery) =>
+    _client.GET("/workspace-templates", { params: { query } }),
+
+  /**
+   * List the categories that group workspace templates.
+   * Use a category's `id` as the `category_id` filter on `listWorkspaceTemplates`.
+   * Categories are optional — templates at the workspace root have none.
+   */
+  listWorkspaceTemplateCategories: () =>
+    _client.GET("/workspace-template-categories"),
 
   /**
    * Duplicate a shared workspace template into one of your projects.

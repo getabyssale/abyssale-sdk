@@ -11,7 +11,7 @@ images, colors, and other properties dynamically.
 ## What is this SDK?
 
 `@abyssale/sdk` is the official Node.js / TypeScript SDK for the Abyssale REST API.
-It provides a zero-config singleton with 17 typed methods covering the full API surface,
+It provides a zero-config singleton with 19 typed methods covering the full API surface,
 plus built-in polling helpers with exponential backoff. Configuration is done via the
 `ABYSSALE_API_KEY` environment variable. The SDK ships as dual ESM/CJS with full
 TypeScript types generated from the OpenAPI spec.
@@ -41,6 +41,8 @@ Set the environment variable `ABYSSALE_API_KEY` to your Abyssale API key.
 - `createProject(body)` — Create a new project to organise designs
 - `exportBanners(body)` — Asynchronously package a set of banners into a ZIP archive for download
 - `createDynamicImageUrl(designId, body)` — Create a live image URL that renders on-the-fly from query parameters
+- `listWorkspaceTemplates(query?)` — List organisation-level master designs, with optional filtering by category or type
+- `listWorkspaceTemplateCategories()` — List the categories that group workspace templates
 - `duplicateWorkspaceTemplate(companyTemplateId, body)` — Copy a shared workspace template into a project
 - `getDuplicationRequest(duplicateRequestId)` — Poll the status of a template duplication request
 
@@ -50,7 +52,7 @@ Set the environment variable `ABYSSALE_API_KEY` to your Abyssale API key.
 - **Bulk ad creative production**: Send a CSV of product data and generate hundreds of social media creatives (Facebook, Instagram, LinkedIn, Google Display) in every required format in a single async call.
 - **E-commerce product banners**: Dynamically swap product image, price, and promotional text into a branded template for each SKU, triggered automatically when inventory or pricing changes.
 - **Print-on-demand**: Generate personalised multi-page PDFs (brochures, catalogues, certificates) with different content per page, ready for commercial printing with crop marks and color profiles.
-- **HTML5 banner ads**: Produce animated HTML5 banners for ad networks (Google Campaign Manager, Sizmek) with click-tag and backup image, directly from your design templates.
+- **HTML5 banner ads**: Produce animated HTML5 banners for ad networks (Google Ads, Adform, Amazon Ads, AdRoll) with click-tag and backup image, directly from your design templates.
 - **Website social cards**: Generate Open Graph and Twitter Card images on demand for any page, with the page title and thumbnail baked in.
 
 ## Key features
