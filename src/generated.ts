@@ -227,7 +227,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Generate images/videos/PDFs asynchronously (multi-format)
+         * Generate multiple formats (asynchronous)
          * @description Asynchronously generate multiple formats of an image, video, GIF, HTML5 banner,
          *     or PDF in a single API call. Ideal for bulk banner production, multi-channel
          *     marketing campaigns, and programmatic ad creative generation at scale.
@@ -535,9 +535,8 @@ export interface components {
             id: string;
             /**
              * @description Version number of the generated file — an integer counter, NOT the API version.
-             *     This field predates the `vYYYY-MM-DD` API version stamp and keeps its own meaning:
-             *     because the stamp is only applied when a payload does not already carry a `version`
-             *     key, a banner response reports this counter and never the API version string.
+             *     A banner response reports this counter; the `vYYYY-MM-DD` stamp other responses carry
+             *     never appears here.
              * @example 1
              */
             version?: number;
@@ -1663,6 +1662,18 @@ export interface components {
                 "application/json": components["schemas"]["ErrorResponse"];
             };
         };
+        /**
+         * @description Rate limit exceeded (10 req/s) **or** a plan / credit restriction — inspect `message`
+         *     to tell them apart. Both answer `id: rate_limit_exceeded`.
+         */
+        GenerationRateLimited: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorResponse"];
+            };
+        };
         /** @description Too Many Requests — request rate limit exceeded (10 req/s). */
         TooManyRequests: {
             headers: {
@@ -1675,21 +1686,6 @@ export interface components {
                  *       "id": "rate_limit_exceeded"
                  *     }
                  */
-                "application/json": components["schemas"]["ErrorResponse"];
-            };
-        };
-        /**
-         * @description Plan or credit restriction — the account does not have sufficient credits or the
-         *     requested output format is not included in the current plan.
-         *
-         *     > **Note:** The API returns these errors as HTTP `429` rather than `402`. Distinguish
-         *     > them from rate-limit errors by inspecting the `message` field.
-         */
-        PaymentRequired: {
-            headers: {
-                [name: string]: unknown;
-            };
-            content: {
                 "application/json": components["schemas"]["ErrorResponse"];
             };
         };
@@ -1709,7 +1705,13 @@ export interface components {
             };
         };
     };
-    parameters: never;
+    parameters: {
+        /**
+         * @description Unique identifier (UUID) of the design. A value that is not a UUID does not match the
+         *     route and answers `404` with `id: endpoint_not_found`.
+         */
+        DesignId: string;
+    };
     requestBodies: never;
     headers: never;
     pathItems: never;
@@ -1730,7 +1732,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Ok */
+            /** @description The workspace's designs. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -1763,14 +1765,17 @@ export interface operations {
             };
             header?: never;
             path: {
-                /** @description Unique identifier (UUID) of the design */
-                designId: string;
+                /**
+                 * @description Unique identifier (UUID) of the design. A value that is not a UUID does not match the
+                 *     route and answers `404` with `id: endpoint_not_found`.
+                 */
+                designId: components["parameters"]["DesignId"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Ok */
+            /** @description The design's formats, elements and variables. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -1810,9 +1815,8 @@ export interface operations {
                          * @description **`printer_multipage` designs only** — returned *instead of* `formats`.
                          *     The document's ordered pages. Each item carries `id` (`page_1 … page_N`),
                          *     `width`, `height`, `unit`, `preview_url`, and the read-only print settings
-                         *     `dpi` / `bleed_size` / `safe_size` (the latter two present only when the
-                         *     corresponding zone is enabled). All pages of a multipage design share the
-                         *     same dimensions.
+                         *     `dpi` / `bleed_size` / `safe_size` (always present; a zone that is off
+                         *     reports `0`). All pages of a multipage design share the same dimensions.
                          */
                         pages?: components["schemas"]["DesignFormat"][];
                         /**
@@ -1827,6 +1831,7 @@ export interface operations {
                     };
                 };
             };
+            401: components["responses"]["Unauthorized"];
             /** @description Design Not found (`template_not_found`) */
             404: {
                 headers: {
@@ -1834,6 +1839,8 @@ export interface operations {
                 };
                 content?: never;
             };
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
         };
     };
     getDesignFormat: {
@@ -1841,8 +1848,11 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description Unique identifier of the design */
-                designId: string;
+                /**
+                 * @description Unique identifier (UUID) of the design. A value that is not a UUID does not match the
+                 *     route and answers `404` with `id: endpoint_not_found`.
+                 */
+                designId: components["parameters"]["DesignId"];
                 /**
                  * @description Format name or UID. For a `printer_multipage` design this is the page identifier
                  *     `page_1 … page_N` (a multipage design has no formats — each page is one format row).
@@ -1977,6 +1987,7 @@ export interface operations {
                     };
                 };
             };
+            401: components["responses"]["Unauthorized"];
             /** @description Format Not found */
             404: {
                 headers: {
@@ -1984,6 +1995,8 @@ export interface operations {
                 };
                 content?: never;
             };
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
         };
     };
     createDynamicImageUrl: {
@@ -1991,8 +2004,11 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description Unique identifier of the design */
-                designId: string;
+                /**
+                 * @description Unique identifier (UUID) of the design. A value that is not a UUID does not match the
+                 *     route and answers `404` with `id: endpoint_not_found`.
+                 */
+                designId: components["parameters"]["DesignId"];
             };
             cookie?: never;
         };
@@ -2044,6 +2060,7 @@ export interface operations {
                 };
                 content?: never;
             };
+            401: components["responses"]["Unauthorized"];
             /** @description Design Not found (`template_not_found`) */
             404: {
                 headers: {
@@ -2051,6 +2068,8 @@ export interface operations {
                 };
                 content?: never;
             };
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
         };
     };
     getFile: {
@@ -2065,7 +2084,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Ok */
+            /** @description The file's metadata and download URLs. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -2074,6 +2093,7 @@ export interface operations {
                     "application/json": components["schemas"]["Banner"];
                 };
             };
+            401: components["responses"]["Unauthorized"];
             /** @description A banner with the specified ID was not found. */
             404: {
                 headers: {
@@ -2081,6 +2101,8 @@ export interface operations {
                 };
                 content?: never;
             };
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
         };
     };
     generateImage: {
@@ -2088,8 +2110,11 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description Unique identifier (UUID) of the design */
-                designId: string;
+                /**
+                 * @description Unique identifier (UUID) of the design. A value that is not a UUID does not match the
+                 *     route and answers `404` with `id: endpoint_not_found`.
+                 */
+                designId: components["parameters"]["DesignId"];
             };
             cookie?: never;
         };
@@ -2122,7 +2147,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Ok */
+            /** @description The generated banner, including its file URLs. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -2132,22 +2157,9 @@ export interface operations {
                 };
             };
             400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
-            /**
-             * @description Rate limit exceeded (10 req/s) **or** plan/credit restriction.
-             *     Inspect the `message` field to distinguish the two causes — see the
-             *     [`TooManyRequests`](#/components/responses/TooManyRequests) and
-             *     [`PaymentRequired`](#/components/responses/PaymentRequired) components
-             *     for the full list of possible messages.
-             */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
+            429: components["responses"]["GenerationRateLimited"];
             500: components["responses"]["InternalServerError"];
         };
     };
@@ -2156,8 +2168,11 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description Unique identifier (UUID) of the design */
-                designId: string;
+                /**
+                 * @description Unique identifier (UUID) of the design. A value that is not a UUID does not match the
+                 *     route and answers `404` with `id: endpoint_not_found`.
+                 */
+                designId: components["parameters"]["DesignId"];
             };
             cookie?: never;
         };
@@ -2233,7 +2248,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Ok */
+            /** @description Generation queued; poll `generation_request_id` or wait for the webhook. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -2249,22 +2264,9 @@ export interface operations {
                 };
             };
             400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
-            /**
-             * @description Rate limit exceeded (10 req/s) **or** plan/credit restriction.
-             *     Inspect the `message` field to distinguish the two causes — see the
-             *     [`TooManyRequests`](#/components/responses/TooManyRequests) and
-             *     [`PaymentRequired`](#/components/responses/PaymentRequired) components
-             *     for the full list of possible messages.
-             */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
+            429: components["responses"]["GenerationRateLimited"];
             500: components["responses"]["InternalServerError"];
         };
     };
@@ -2280,7 +2282,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Ok */
+            /** @description The fonts available to this workspace. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -2316,7 +2318,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Ok */
+            /** @description Export queued; keep `export_id` to match the webhook. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -2332,7 +2334,10 @@ export interface operations {
                 };
             };
             400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
         };
     };
     generateMultiPagePdf: {
@@ -2340,8 +2345,11 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description Unique identifier (UUID) of the design */
-                designId: string;
+                /**
+                 * @description Unique identifier (UUID) of the design. A value that is not a UUID does not match the
+                 *     route and answers `404` with `id: endpoint_not_found`.
+                 */
+                designId: components["parameters"]["DesignId"];
             };
             cookie?: never;
         };
@@ -2374,7 +2382,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Ok */
+            /** @description Generation queued; poll `generation_request_id` or wait for the webhook. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -2390,22 +2398,9 @@ export interface operations {
                 };
             };
             400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
-            /**
-             * @description Rate limit exceeded (10 req/s) **or** plan/credit restriction.
-             *     Inspect the `message` field to distinguish the two causes — see the
-             *     [`TooManyRequests`](#/components/responses/TooManyRequests) and
-             *     [`PaymentRequired`](#/components/responses/PaymentRequired) components
-             *     for the full list of possible messages.
-             */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
+            429: components["responses"]["GenerationRateLimited"];
             500: components["responses"]["InternalServerError"];
         };
     };
@@ -2421,7 +2416,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Ok */
+            /** @description Generation finished — `is_finalized` is `true` and `banners` is populated. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -2439,6 +2434,7 @@ export interface operations {
                     "application/json": components["schemas"]["GenerationRequestStatus"];
                 };
             };
+            401: components["responses"]["Unauthorized"];
             /** @description Generation request not found (`generation_request_not_found`) */
             404: {
                 headers: {
@@ -2453,6 +2449,8 @@ export interface operations {
                 };
                 content?: never;
             };
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
         };
     };
     listProjects: {
@@ -2464,7 +2462,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Ok */
+            /** @description The workspace's projects. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -2538,7 +2536,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Ok */
+            /** @description The workspace's shared templates. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -2562,7 +2560,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Ok */
+            /** @description The categories grouping workspace templates. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -2616,6 +2614,7 @@ export interface operations {
                     "application/json": components["schemas"]["DuplicationRequest"];
                 };
             };
+            401: components["responses"]["Unauthorized"];
             /** @description Workspace template Or Project not found */
             404: {
                 headers: {
@@ -2623,6 +2622,8 @@ export interface operations {
                 };
                 content?: never;
             };
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
         };
     };
     getDuplicationRequest: {
@@ -2649,6 +2650,7 @@ export interface operations {
                     "application/json": components["schemas"]["DuplicationRequestStatus"];
                 };
             };
+            401: components["responses"]["Unauthorized"];
             /** @description Duplication request not found */
             404: {
                 headers: {
@@ -2656,6 +2658,8 @@ export interface operations {
                 };
                 content?: never;
             };
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
         };
     };
 }
