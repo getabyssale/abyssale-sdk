@@ -464,8 +464,13 @@ export interface components {
             /** @description Human-readable error message. */
             message: string;
             /**
-             * @description Machine-readable error code identifier. Always present on errors the API
-             *     validates itself — branch on this rather than on `message`.
+             * @description Machine-readable error code identifier. **Present on every error response** —
+             *     branch on this rather than on `message`, which is prose and may change.
+             *
+             *     This includes errors the generation pipeline raises downstream and this API relays:
+             *     they carry no code of their own, so one is derived (`format_not_found`,
+             *     `template_not_found`, `invalid_payload`, …) and a refusal that matches none of the
+             *     known cases is reported as `cannot_build_banner` rather than as a bare `message`.
              *
              *     Common values: `template_not_found`, `template_not_static`, `format_not_found`,
              *     `invalid_payload`, `invalid_filetype`, `more_than_one_format`,
