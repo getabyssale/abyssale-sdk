@@ -38,7 +38,7 @@ The SDK reads configuration from environment variables — no constructor argume
 |---|---|---|---|
 | `ABYSSALE_API_KEY` | ✅ | — | Your Abyssale API key. The SDK throws at import time if this is not set. |
 | `ABYSSALE_TIMEOUT_MS` | — | `30000` | Per-request timeout in milliseconds. |
-| `ABYSSALE_MAX_RETRIES` | — | `3` | Maximum number of retries on `429` and `5xx` errors. |
+| `ABYSSALE_MAX_RETRIES` | — | `3` | Maximum retries. Applied to `5xx` on **read** requests only — a POST is never repeated automatically, because every POST here generates or duplicates something and a `504` does not mean it did not happen. A `429` is retried only when the response carries `Retry-After`: a bare `429` on this API means "not enough credits" or a plan gate, which no amount of retrying fixes. |
 
 ```bash
 ABYSSALE_API_KEY=your-key node your-script.js
@@ -207,7 +207,7 @@ Both are configurable via environment variables (`ABYSSALE_TIMEOUT_MS`, `ABYSSAL
 
 ```ts
 abyssale.listDesigns(query?)               // GET /designs
-abyssale.getDesign(designId)               // GET /designs/{designId}
+abyssale.getDesign(designId, { advanced? })// GET /designs/{designId} — `advanced: true` also returns `group` layers
 abyssale.getDesignFormat(designId, format) // GET /designs/{designId}/formats/{format}
 ```
 

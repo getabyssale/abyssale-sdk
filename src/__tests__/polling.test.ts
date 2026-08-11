@@ -1,136 +1,130 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from "vitest";
 
-// ── Helpers replicated from src/index.ts for isolated unit testing ─────────────
-// (pollUntil / resolveOpts are not exported; we test the same logic here)
+/**
+ * These exercise the SDK's REAL polling helpers through the public surface.
+ *
+ * They used to test a hand-copied `pollUntil`/`resolveOpts` pasted into this file "for isolated
+ * unit testing", which meant the suite stayed green no matter what `src/index.ts` did — the copy
+ * and the original had already drifted. Stub `fetch` and drive `waitForGenerationRequest`
+ * instead: same coverage, against the code that ships.
+ */
+process.env.ABYSSALE_API_KEY ??= "test-key";
+process.env.ABYSSALE_BASE_URL ??= "https://api.test.local";
 
-const POLL_MIN_INTERVAL_MS = 2_000;
-const POLL_MIN_MAX_INTERVAL_MS = 5_000;
-const POLL_MIN_TIMEOUT_MS = 60_000;
+let abyssale: typeof import("../index.js").default;
+let AbyssalePollingError: typeof import("../index.js").AbyssalePollingError;
+let fetchMock: ReturnType<typeof vi.fn>;
 
-interface PollOptions {
-  intervalMs?: number;
-  maxIntervalMs?: number;
-  timeoutMs?: number;
-}
+beforeAll(async () => {
+  // openapi-fetch captures `globalThis.fetch` at client creation — stub before importing.
+  fetchMock = vi.fn();
+  vi.stubGlobal("fetch", fetchMock);
+  const mod = await import("../index.js");
+  abyssale = mod.default;
+  AbyssalePollingError = mod.AbyssalePollingError;
+});
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms));
-}
+const json = (body: unknown, status = 200) =>
+  new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 
-function jitter(): number {
-  return 0; // deterministic in tests
-}
+/** Poll options below every floor, so the helper's clamping is what actually applies. */
+const FAST = { intervalMs: 1, maxIntervalMs: 1, timeoutMs: 1 };
 
-async function pollUntil<T>(
-  fn: () => Promise<{ data?: T | null; error?: unknown }>,
-  isDone: (data: T) => boolean,
-  opts: Required<PollOptions>
-): Promise<T> {
-  const deadline = Date.now() + opts.timeoutMs;
-  let interval = opts.intervalMs;
-  for (;;) {
-    const { data, error } = await fn();
-    if (error) throw new Error(`[abyssale] Polling failed: ${JSON.stringify(error)}`);
-    if (!data) throw new Error("[abyssale] Polling returned empty response");
-    if (isDone(data)) return data;
-    const wait = interval + jitter();
-    if (Date.now() + wait > deadline) throw new Error("Polling timed out");
-    await sleep(wait);
-    interval = Math.min(interval * 2, opts.maxIntervalMs);
-  }
-}
+beforeEach(() => {
+  vi.useFakeTimers();
+  fetchMock.mockReset();
+});
+afterEach(() => vi.useRealTimers());
 
-function resolveOpts(opts?: PollOptions): Required<PollOptions> {
-  return {
-    intervalMs: Math.max(opts?.intervalMs ?? 3_000, POLL_MIN_INTERVAL_MS),
-    maxIntervalMs: Math.max(opts?.maxIntervalMs ?? 30_000, POLL_MIN_MAX_INTERVAL_MS),
-    timeoutMs: Math.max(opts?.timeoutMs ?? 1_800_000, POLL_MIN_TIMEOUT_MS),
-  };
-}
+describe("waitForGenerationRequest", () => {
+  it("returns immediately when the first response is already finalized", async () => {
+    fetchMock.mockImplementation(() => json({ is_finalized: true, banners: [{ id: "b1" }] }));
 
-function makeOpts(overrides?: PollOptions): Required<PollOptions> {
-  return resolveOpts({ intervalMs: 10, maxIntervalMs: 1000, timeoutMs: 5000, ...overrides });
-}
-
-// ── Tests ──────────────────────────────────────────────────────────────────────
-
-describe("pollUntil (waitForGenerationRequest logic)", () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-  });
-
-  it("returns immediately when the first response is already done", async () => {
-    const fn = vi.fn().mockResolvedValue({
-      data: { is_finalized: true, banners: [{ id: "b1" }] },
-    });
-
-    const promise = pollUntil(fn, (d: any) => d.is_finalized === true, makeOpts());
+    const promise = abyssale.waitForGenerationRequest("req-1", FAST);
     await vi.runAllTimersAsync();
-    const result = await promise;
 
-    expect(fn).toHaveBeenCalledTimes(1);
-    expect((result as any).is_finalized).toBe(true);
+    expect(await promise).toMatchObject({ is_finalized: true });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("polls until finalized after two pending responses", async () => {
-    const fn = vi
-      .fn()
-      .mockResolvedValueOnce({ data: { is_finalized: false } })
-      .mockResolvedValueOnce({ data: { is_finalized: false } })
-      .mockResolvedValueOnce({ data: { is_finalized: true, banners: [] } });
+  it("polls until finalized", async () => {
+    fetchMock
+      .mockResolvedValueOnce(json({ is_finalized: false }))
+      .mockResolvedValueOnce(json({ is_finalized: false }))
+      .mockImplementation(() => json({ is_finalized: true, banners: [] }));
 
-    const promise = pollUntil(fn, (d: any) => d.is_finalized === true, makeOpts());
+    const promise = abyssale.waitForGenerationRequest("req-2");
     await vi.runAllTimersAsync();
-    const result = await promise;
 
-    expect(fn).toHaveBeenCalledTimes(3);
-    expect((result as any).is_finalized).toBe(true);
+    expect(await promise).toMatchObject({ is_finalized: true });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
-  it("throws a descriptive error when the API returns an error", async () => {
-    const fn = vi.fn().mockResolvedValue({ error: { message: "Not found" } });
+  it("backs off exponentially from the clamped 2s floor", async () => {
+    fetchMock
+      .mockResolvedValueOnce(json({ is_finalized: false }))
+      .mockResolvedValueOnce(json({ is_finalized: false }))
+      .mockImplementation(() => json({ is_finalized: true }));
 
-    const promise = pollUntil(fn, () => false, makeOpts());
-    await Promise.all([vi.runAllTimersAsync(), expect(promise).rejects.toThrow("[abyssale] Polling failed:")]);
+    const promise = abyssale.waitForGenerationRequest("req-3", FAST);
+    // Below the 2 000ms floor nothing has happened past the first request.
+    await vi.advanceTimersByTimeAsync(1_500);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    // 2s floor (+ up to 500ms jitter) → second; then 4s → third.
+    await vi.advanceTimersByTimeAsync(2_500);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(4_500);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    await vi.runAllTimersAsync();
+    await promise;
   });
 
-  it("clamps intervalMs to minimum 2 000ms", () => {
-    const opts = resolveOpts({ intervalMs: 10 });
-    expect(opts.intervalMs).toBe(POLL_MIN_INTERVAL_MS);
-  });
+  it("raises AbyssalePollingError carrying the API's error id", async () => {
+    fetchMock.mockImplementation(() => json({ id: "generation_request_not_found", message: "Not found" }, 404));
 
-  it("clamps maxIntervalMs to minimum 5 000ms", () => {
-    const opts = resolveOpts({ maxIntervalMs: 100 });
-    expect(opts.maxIntervalMs).toBe(POLL_MIN_MAX_INTERVAL_MS);
-  });
-
-  it("clamps timeoutMs to minimum 60 000ms", () => {
-    const opts = resolveOpts({ timeoutMs: 100 });
-    expect(opts.timeoutMs).toBe(POLL_MIN_TIMEOUT_MS);
-  });
-
-  it("throws when polling returns empty data", async () => {
-    const fn = vi.fn().mockResolvedValue({ data: null });
-
-    const promise = pollUntil(fn, () => false, makeOpts());
-    await Promise.all([vi.runAllTimersAsync(), expect(promise).rejects.toThrow("[abyssale] Polling returned empty response")]);
-  });
-
-  it("uses defaults: 3s interval, 30s maxInterval, 30min timeout", () => {
-    const opts = resolveOpts();
-    expect(opts.intervalMs).toBe(3_000);
-    expect(opts.maxIntervalMs).toBe(30_000);
-    expect(opts.timeoutMs).toBe(1_800_000);
-  });
-
-  it("throws 'Polling timed out' when timeout is exceeded", async () => {
-    const fn = vi.fn().mockResolvedValue({ data: { is_finalized: false } });
-
-    // timeoutMs=0 so the first sleep already exceeds the deadline
-    const promise = pollUntil(fn, (d: any) => d.is_finalized === true, {
-      ...makeOpts(),
-      timeoutMs: 0,
+    const promise = abyssale.waitForGenerationRequest("missing", FAST);
+    const assertion = expect(promise).rejects.toMatchObject({
+      name: "AbyssalePollingError",
+      id: "generation_request_not_found",
     });
-    await Promise.all([vi.runAllTimersAsync(), expect(promise).rejects.toThrow("Polling timed out")]);
+    await Promise.all([vi.runAllTimersAsync(), assertion]);
+  });
+
+  it("raises AbyssalePollingError on an empty body", async () => {
+    fetchMock.mockImplementation(() => new Response("", { status: 200, headers: { "content-type": "application/json" } }));
+
+    const promise = abyssale.waitForGenerationRequest("empty", FAST);
+    const assertion = expect(promise).rejects.toThrow(AbyssalePollingError);
+    await Promise.all([vi.runAllTimersAsync(), assertion]);
+  });
+
+  it("times out — the floor is 60s, not the 1ms asked for", async () => {
+    fetchMock.mockImplementation(() => json({ is_finalized: false }));
+
+    const promise = abyssale.waitForGenerationRequest("slow", FAST);
+    const assertion = expect(promise).rejects.toThrow(/no result after 60s/);
+    await Promise.all([vi.runAllTimersAsync(), assertion]);
+  });
+});
+
+describe("waitForDuplicationRequest", () => {
+  it("stops on COMPLETED", async () => {
+    fetchMock
+      .mockResolvedValueOnce(json({ status: "IN_PROGRESS" }))
+      .mockImplementation(() => json({ status: "COMPLETED", designs: [] }));
+
+    const promise = abyssale.waitForDuplicationRequest("dup-1", FAST);
+    await vi.runAllTimersAsync();
+
+    expect(await promise).toMatchObject({ status: "COMPLETED" });
+  });
+
+  it("stops on ERROR — a failed duplication is a result, not an exception", async () => {
+    fetchMock.mockImplementation(() => json({ status: "ERROR" }));
+
+    const promise = abyssale.waitForDuplicationRequest("dup-2", FAST);
+    await vi.runAllTimersAsync();
+
+    expect(await promise).toMatchObject({ status: "ERROR" });
   });
 });

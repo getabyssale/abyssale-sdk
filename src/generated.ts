@@ -46,7 +46,7 @@ export interface paths {
          *
          *     For printer designs, each format additionally carries its print settings read-only:
          *     `dpi` (integer render DPI computed at import time, capped at 300), and `bleed_size` /
-         *     `safe_size` (floats in the format's unit, present only when the corresponding zone is
+         *     `safe_size` (floats in the design's unit, present only when the corresponding zone is
          *     enabled).
          *
          *     For animated designs, the response additionally carries the animation model: a
@@ -64,8 +64,17 @@ export interface paths {
          *     design. `pages[]` items carry `id` (`page_1 … page_N`), `width`, `height`, `unit`,
          *     `preview_url` and the read-only `dpi`/`bleed_size`/`safe_size` print settings;
          *     `elements_per_page` is an **object keyed by page id** (not an array), each value being
-         *     that page's element list. Group layers are not part of this response — read
-         *     `GET /designs/{designId}/formats/{formatSpecifier}` (or `as-import`) to see them.
+         *     that page's element list.
+         *
+         *     **Group layers require `?i=advanced`.** By default this endpoint returns its original
+         *     released shape, in which no `group` element ever appears — a `group` layer's children
+         *     are listed individually and the group itself is invisible. Pass `i=advanced` to have
+         *     `group` elements injected (into `elements`, or into each page's list in
+         *     `elements_per_page` on a multipage design), each carrying its `layout`, its `group`
+         *     block (`layer_ids` and, except on animated designs, `auto_layout` /
+         *     `direction` / `placement` / `gap`) and its computed `hidden` / `locked`. The
+         *     per-format read `GET /designs/{designId}/formats/{formatSpecifier}` is always the
+         *     advanced view and needs no parameter.
          */
         get: operations["getDesign"];
         put?: never;
@@ -91,13 +100,19 @@ export interface paths {
          *
          *     For printer designs the response additionally carries the format's print settings
          *     read-only: `dpi` (integer render DPI computed at import time, capped at 300), and
-         *     `bleed_size` / `safe_size` (floats in the format's unit, present only when the
+         *     `bleed_size` / `safe_size` (floats in the design's unit, present only when the
          *     corresponding zone is enabled).
          *
          *     For animated designs the response additionally carries the design's `animation`
          *     object (`duration`, `screenshot_at_s` — seconds), per-element `animation`
          *     timing/tween data, and video/audio media attributes — the same read surface as
          *     `GET /designs/{designId}`.
+         *
+         *     **This endpoint is always the advanced view.** Unlike `GET /designs/{designId}`, it
+         *     needs no `i=advanced` parameter: it always returns the full property set and always
+         *     injects the format's `group` layers, flattened to this single format (`layout`, the
+         *     `group` block, and the computed `hidden` / `locked` are plain values, not keyed by
+         *     format name). A group that does not exist in the requested format is not emitted.
          *
          *     **Multipage print designs (`printer_multipage`):** a multipage design is one document —
          *     it has **no formats**, and its pages are not addressable through this endpoint. Any
@@ -473,7 +488,18 @@ export interface components {
                 /** @description Human-readable reason. */
                 message: string;
             }[];
+            version?: components["schemas"]["ApiVersion"];
         };
+        /**
+         * @description The API version that produced this response, named by release date (`vYYYY-MM-DD`).
+         *     Stamped as a top-level field on **every** JSON object body the API returns, success and
+         *     error alike, so a client can always tell which contract answered. Array bodies (such as
+         *     the design-import listing) carry no envelope and are therefore not stamped. There is no
+         *     version-selection parameter — a single version is maintained at a time.
+         * @example v2026-08-10
+         * @enum {string}
+         */
+        ApiVersion: "v2026-08-10";
         Banner: {
             /**
              * Format: uuid
@@ -481,7 +507,10 @@ export interface components {
              */
             id: string;
             /**
-             * @description Version number of the generated file.
+             * @description Version number of the generated file — an integer counter, NOT the API version.
+             *     This field predates the `vYYYY-MM-DD` API version stamp and keeps its own meaning:
+             *     because the stamp is only applied when a payload does not already carry a `version`
+             *     key, a banner response reports this counter and never the API version string.
              * @example 1
              */
             version?: number;
@@ -575,6 +604,12 @@ export interface components {
              */
             id: string;
             /**
+             * Format: uuid
+             * @description Deprecated duplicate of `id`, always present and always equal to it. Kept for existing clients — read `id`.
+             * @example 64238d01-d402-474b-8c2d-fbc957e9d290
+             */
+            template_id?: string;
+            /**
              * @description Name of the design.
              * @example Ad campaign fall 2025
              */
@@ -609,16 +644,17 @@ export interface components {
             /**
              * Format: uuid
              * @deprecated
-             * @description Deprecated alias of `project_id`. A design belongs to a project; use `project_id`.
+             * @description Deprecated, superseded by `project_id`, and always equal to it on a design. `category_id` properly names the grouping of a WORKSPACE TEMPLATE — a design belongs to a project, so read `project_id`.
              * @example 9d1f2b7c-5a44-4c3e-9f21-0b8e6d4a1c73
              */
             category_id?: string | null;
             /**
              * @deprecated
-             * @description Deprecated alias of `project_name`. A design belongs to a project; use `project_name`.
+             * @description Deprecated, superseded by `project_name`. On the `GET /designs` listing it mirrors `project_name`; on a single-design read it is whatever the platform stored on the row and may be `null` or differ. `category_*` names the grouping of a WORKSPACE TEMPLATE — a design belongs to a project, so read `project_name`.
              * @example Fall campaigns
              */
             category_name?: string | null;
+            version?: components["schemas"]["ApiVersion"] & unknown;
         };
         /**
          * @description A workspace template — an organisation-level master design. Same underlying object
@@ -745,12 +781,12 @@ export interface components {
              */
             dpi?: number;
             /**
-             * @description Printer designs only. Bleed size as a float in the format's unit (mm/in). Present only when bleed is enabled on the format.
+             * @description Printer designs only. Bleed size as a float in the design's unit (mm/in). Present only when bleed is enabled on the format.
              * @example 3.5
              */
             bleed_size?: number;
             /**
-             * @description Printer designs only. Safe-zone size as a float in the format's unit (mm/in). Present only when the safe zone is enabled on the format.
+             * @description Printer designs only. Safe-zone size as a float in the design's unit (mm/in). Present only when the safe zone is enabled on the format.
              * @example 5
              */
             safe_size?: number;
@@ -1683,7 +1719,14 @@ export interface operations {
     };
     getDesign: {
         parameters: {
-            query?: never;
+            query?: {
+                /**
+                 * @description Pass `advanced` to receive the design's **full** layer set and property set —
+                 *     notably `group` layers, which are omitted from the default response. Any other
+                 *     value (or none) returns the default shape.
+                 */
+                i?: "advanced";
+            };
             header?: never;
             path: {
                 /** @description Unique identifier (UUID) of the design */
@@ -1741,8 +1784,8 @@ export interface operations {
                         /**
                          * @description **`printer_multipage` designs only** — returned *instead of* `elements`.
                          *     An object keyed by page id (`page_1 … page_N`), each value being that
-                         *     page's element list (group layers excluded — export the design with
-                         *     `as-import` to see them). Defaults to `{}`.
+                         *     page's element list (group layers included only when `i=advanced` is
+                         *     passed). Defaults to `{}`.
                          */
                         elements_per_page?: {
                             [key: string]: components["schemas"]["DesignElement"][];
@@ -1750,7 +1793,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description Design Not found */
+            /** @description Design Not found (`template_not_found`) */
             404: {
                 headers: {
                     [name: string]: unknown;

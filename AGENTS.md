@@ -8,9 +8,10 @@ Types are auto-generated from the public OpenAPI spec at `https://api-reference.
 
 ```
 src/generated.ts       ← auto-generated types (openapi-typescript) — never edit manually
-src/middleware.ts      ← retry + timeout middleware
+src/middleware.ts      ← retry (idempotent 5xx + Retry-After 429 only) + timeout middleware
 src/index.ts           ← singleton export with all 19 named methods + public type re-exports
-dist/                  ← compiled output (gitignored) — built by tsup
+dist/                  ← compiled output, committed and kept current — built by tsup
+scripts/fetch-spec.mjs ← fetches the spec and strips the Alpha design-import surface
 ```
 
 ## Key decisions
@@ -40,9 +41,14 @@ npm test            # vitest
 **Deliberate exclusion — design import.** The design-import surface (`POST /designs/import/json`,
 `GET`/`PUT` `/designs/import/json/{importId}`, `GET /designs/{designId}/as-import` and every
 `DesignImport*` / `DesignAsImportResponse` schema) is in **Alpha** and intentionally NOT in the
-SDK. `src/generated.ts` is currently generated from a copy of the spec with those paths and
-schemas removed. When regenerating with `npm run generate`, strip them again before committing
-until the API is declared stable.
+SDK. **`npm run generate` strips them automatically** — `scripts/fetch-spec.mjs` fetches the spec,
+removes those paths, every `DesignImport*` / `DesignAsImportResponse` schema and the matching
+`components.responses` entries, then fails loudly if the strip left a dangling `$ref`. No manual
+step, and `prepublishOnly` can no longer ship the Alpha surface by accident.
+
+`ApiVersion` is deliberately NOT stripped — it is shared with `Design`, `Banner` and
+`ErrorResponse`. To regenerate against an unpublished spec (e.g. an `abyssale-edge-api` branch),
+set `ABYSSALE_SPEC_URL` to a local path. Delete the script once the design-import API is stable.
 
 ## Local development in another repo
 

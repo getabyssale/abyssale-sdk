@@ -1,6 +1,6 @@
 {
   "name": "@abyssale/sdk",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Official Node.js/TypeScript SDK for programmatic image generation, animated banners, and print-ready PDFs via the Abyssale API",
   "type": "module",
   "main": "./dist/index.cjs",
@@ -22,7 +22,7 @@
     "node": ">=20.0.0"
   },
   "scripts": {
-    "generate": "openapi-typescript https://api-reference.abyssale.com/api.yaml -o src/generated.ts",
+    "generate": "node scripts/fetch-spec.mjs spec.stripped.json && openapi-typescript spec.stripped.json -o src/generated.ts && node -e \"require('node:fs').unlinkSync('spec.stripped.json')\"",
     "dev": "tsup --watch",
     "build": "tsup",
     "test": "vitest run",
@@ -33,6 +33,7 @@
   },
   "devDependencies": {
     "@types/node": "^25.9.3",
+    "js-yaml": "^4.1.0",
     "openapi-typescript": "^7",
     "tsup": "^8",
     "typescript": "^5",

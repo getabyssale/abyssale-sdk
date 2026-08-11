@@ -108,14 +108,24 @@ const abyssale = {
    * Multipage print designs (`printer_multipage`) have no formats — the response
    * carries `pages` and `elements_per_page` (keyed `page_1 … page_N`) instead of
    * `formats`, `elements`, `variables` and `dynamic_image_url`.
+   *
+   * Pass `{ advanced: true }` to get the full layer set — notably `group` layers, which the
+   * default response omits. `getDesignFormat` is always the advanced view and needs no flag.
    * @example
    * const { data } = await abyssale.getDesign('64238d01-d402-474b-8c2d-fbc957e9d290');
+   * const { data: full } = await abyssale.getDesign(designId, { advanced: true });
    */
-  getDesign: (designId: string) =>
-    _client.GET("/designs/{designId}", { params: { path: { designId } } }),
+  getDesign: (designId: string, options?: { advanced?: boolean }) =>
+    _client.GET("/designs/{designId}", {
+      params: {
+        path: { designId },
+        query: options?.advanced ? { i: "advanced" as const } : undefined,
+      },
+    }),
 
   /**
-   * Get details for a specific format within a design.
+   * Get details for a specific format within a design. Always the advanced view: the full
+   * property set and the format's `group` layers, flattened to that one format.
    * `formatSpecifier` can be the format name (e.g. "facebook-post") or its UUID.
    * Does not apply to `printer_multipage` designs (they have no formats):
    * every specifier answers `404 format_not_found` — use `getDesign` instead.
@@ -327,6 +337,44 @@ const POLL_MIN_INTERVAL_MS = 2_000;
 const POLL_MIN_MAX_INTERVAL_MS = 5_000;
 const POLL_MIN_TIMEOUT_MS = 60_000;
 
+/**
+ * Thrown when a polling helper's underlying request fails.
+ *
+ * The API's error body is preserved on `.response` (and its machine-readable `id` on `.id`)
+ * rather than being flattened into the message — callers branch on `id`, never on prose. See
+ * {@link ErrorResponse}.
+ *
+ * @example
+ * try {
+ *   await abyssale.waitForGenerationRequest(id);
+ * } catch (err) {
+ *   if (err instanceof AbyssalePollingError && err.id === "generation_request_not_found") {
+ *     // handle a request that has expired
+ *   }
+ * }
+ */
+export class AbyssalePollingError extends Error {
+  /** The parsed API error body, when the failure carried one. */
+  readonly response?: ErrorResponse;
+  /** The API's machine-readable error code, when present. */
+  readonly id?: string;
+  /** The raw error value, exactly as returned by the underlying fetch layer. */
+  readonly cause: unknown;
+
+  constructor(error: unknown) {
+    const body = (
+      error && typeof error === "object" && !(error instanceof Error) ? error : undefined
+    ) as ErrorResponse | undefined;
+    const detail =
+      error instanceof Error ? error.message : (body?.message ?? JSON.stringify(error));
+    super(`[abyssale] Polling failed: ${detail}`);
+    this.name = "AbyssalePollingError";
+    this.cause = error;
+    this.response = body;
+    this.id = body?.id;
+  }
+}
+
 // ── Internal polling helper ───────────────────────────────────────────────────
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -344,12 +392,25 @@ async function pollUntil<T>(
   const deadline = Date.now() + opts.timeoutMs;
   let interval = opts.intervalMs;
   for (;;) {
-    const { data, error } = await fn();
-    if (error) throw new Error(`[abyssale] Polling failed: ${error instanceof Error ? error.message : JSON.stringify(error)}`);
-    if (!data) throw new Error("[abyssale] Polling returned empty response");
+    // A malformed or empty body makes openapi-fetch's `res.json()` THROW rather than populate
+    // `error` — a raw SyntaxError would otherwise escape a helper that promises callers can
+    // branch on `err.id`. Everything that comes out of a polling helper is an
+    // `AbyssalePollingError` with the original on `.cause`.
+    let result: { data?: T | null; error?: unknown };
+    try {
+      result = await fn();
+    } catch (thrown) {
+      throw new AbyssalePollingError(thrown);
+    }
+    const { data, error } = result;
+    if (error) throw new AbyssalePollingError(error);
+    if (!data) throw new AbyssalePollingError(new Error("the API returned an empty response"));
     if (isDone(data)) return data;
     const wait = interval + jitter();
-    if (Date.now() + wait > deadline) throw new Error("Polling timed out");
+    if (Date.now() + wait > deadline)
+      throw new AbyssalePollingError(
+        new Error(`no result after ${Math.round(opts.timeoutMs / 1000)}s — the request may still complete`)
+      );
     await sleep(wait);
     interval = Math.min(interval * 2, opts.maxIntervalMs);
   }

@@ -40,14 +40,42 @@ describe("retryMiddleware", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it("retries on 429 and returns successful response", async () => {
+  it("does not retry a bare 429 — on this API it means credits/plan, not throttling", async () => {
+    // `rate_limit_exceeded` is also what the edge returns for "not enough credits" and for plan
+    // gates. Those never succeed on retry; backing off three times just delays the failure.
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const middleware = retryMiddleware(3);
+    const result = await middleware.onResponse!({
+      response: new Response(null, { status: 429 }),
+      request: new Request("https://example.com"),
+      options: {},
+    } as Parameters<NonNullable<typeof middleware.onResponse>>[0]);
+
+    expect(result).toBeUndefined();
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("does not retry a POST on 5xx — a repeat would bill a second generation", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const middleware = retryMiddleware(3);
+    const result = await middleware.onResponse!({
+      response: new Response(null, { status: 500 }),
+      request: new Request("https://example.com", { method: "POST", body: "{}" }),
+      options: {},
+    } as Parameters<NonNullable<typeof middleware.onResponse>>[0]);
+
+    expect(result).toBeUndefined();
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("retries a 429 that carries Retry-After, and waits for it", async () => {
     const successResponse = new Response(null, { status: 200 });
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
       .mockResolvedValue(successResponse);
 
     const middleware = retryMiddleware(3);
-    const response = new Response(null, { status: 429 });
+    const response = new Response(null, { status: 429, headers: { "retry-after": "2" } });
     const request = new Request("https://example.com");
 
     const promise = middleware.onResponse!({

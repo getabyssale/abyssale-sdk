@@ -41,6 +41,7 @@ Set the environment variable `ABYSSALE_API_KEY` to your Abyssale API key.
 - `createProject(body)` — Create a new project to organise designs
 - `exportBanners(body)` — Asynchronously package a set of banners into a ZIP archive for download
 - `createDynamicImageUrl(designId, body)` — Create a live image URL that renders on-the-fly from query parameters
+- `getDesign(designId, { advanced? })` — Full design spec; `advanced: true` also returns `group` layers
 - `listWorkspaceTemplates(query?)` — List organisation-level master designs, with optional filtering by category or type
 - `listWorkspaceTemplateCategories()` — List the categories that group workspace templates
 - `duplicateWorkspaceTemplate(companyTemplateId, body)` — Copy a shared workspace template into a project
