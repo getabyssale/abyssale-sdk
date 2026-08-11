@@ -192,6 +192,16 @@ export interface paths {
          *
          *     For bulk generation across multiple formats, use the asynchronous endpoint instead.
          *
+         *     **AI features and the 10-second cap.** `text_to_image` is **not accepted here** — an AI
+         *     generation takes far longer than the budget, so the field exists only on the asynchronous
+         *     endpoint and sending it answers `400 invalid_payload`. Background removal (`remove_bg`)
+         *     *is* accepted but is **deprecated on this endpoint**: it adds an AI round-trip before the
+         *     render, so a large or slow source image can push the call past the cap and fail with
+         *     `500 internal_server_error` rather than returning your asset. Existing integrations keep
+         *     working; new ones should remove backgrounds asynchronously. `auto_focus` is unaffected
+         *     and fully supported here — it runs on Abyssale's own detection model and is fast enough
+         *     that it does not put the budget at risk.
+         *
          *     **All body fields are optional** — omit `elements` to render the design's saved
          *     default content. A `template_format_name` that does not exist on the design answers
          *     `404` with `id: format_not_found` (the format is addressed as a resource, so this is
@@ -227,6 +237,11 @@ export interface paths {
          *     `GET /generation-request/{generationRequestId}` for status.
          *
          *     You can find available formats and elements by calling `GET /designs/{designId}`.
+         *
+         *     **This is where AI image work belongs.** Having no completion bound, this endpoint is the
+         *     only one that accepts `text_to_image` (AI generation and inpainting), and it is the
+         *     recommended home for `remove_bg` too — both add an AI round-trip that the synchronous
+         *     endpoint's 10-second cap cannot absorb.
          *
          *     **All body fields are optional** — omit `elements` to render the design's saved
          *     default content, and omit `template_format_names` to generate every format. A
@@ -986,9 +1001,22 @@ export interface components {
             overlay_direction?: components["schemas"]["overlayDirection"];
             overlay_color_1?: components["schemas"]["overlayColor1"];
             overlay_color_2?: components["schemas"]["overlayColor2"];
-            /** @description Activates AI background removal when set to true (Only available for asynchronous generation). */
+            /**
+             * @deprecated
+             * @description Activates AI background removal when set to true.
+             *
+             *     **Deprecated on this endpoint, and not recommended.** It works and existing
+             *     integrations keep working, but removing a background is an extra AI round-trip on
+             *     top of the render, and this endpoint is hard-capped at 10 seconds — a large or slow
+             *     source image can push the whole call past the cap and fail with
+             *     `500 internal_server_error` instead of returning your asset. Use asynchronous
+             *     generation, which has no such bound.
+             */
             remove_bg?: boolean;
-            /** @description Additional settings for background removal. */
+            /**
+             * @deprecated
+             * @description Additional settings for background removal. Deprecated here for the same reason as `remove_bg`.
+             */
             remove_bg_properties?: {
                 /** @description Trims the edges of the image after background removal. Default is false. */
                 remove_bg_crop?: boolean;
@@ -1020,12 +1048,6 @@ export interface components {
                  */
                 focus_target?: "largest" | "left" | "middle" | "right" | "all";
             };
-            /**
-             * @description AI-generated image from a text prompt. Only available for asynchronous generation.
-             *     If `image_url` (except default image) or `image_encoded` is provided, this property is ignored.
-             * @example A sleek, modern glass villa situated in the middle of a minimalist lavender field.
-             */
-            text_to_image?: string;
         };
         /** @description Image element properties available for asynchronous generation, including AI image generation, inpainting, and background removal model selection. */
         AsyncImageElement: {
