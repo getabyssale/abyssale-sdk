@@ -40,6 +40,10 @@ All notable changes to `@abyssale/sdk` are documented here.
   plain `Error`s; all three are now `AbyssalePollingError` with the original on `.cause`.
 
 ### Changed (types)
+- Regenerated against API `v2026-08-10`: the `errors[]` item doc records that detail relayed from
+  the generation engine is translated into `{path, code, message}` before it reaches you (it used
+  to arrive as `{field, message}`, contradicting the required `path`/`code`), and a printer
+  format's `dpi` / `bleed_size` / `safe_size` are documented as always present.
 - `ErrorResponse.id` is now **required** (`id: string`, was `id?: string`). The API guarantees it
   on every error response, and typing it optional forced callers into `err.id!` or a fallback
   branch the API never takes. Requires API `v2026-08-10` or later.

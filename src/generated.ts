@@ -46,8 +46,10 @@ export interface paths {
          *
          *     For printer designs, each format additionally carries its print settings read-only:
          *     `dpi` (integer render DPI computed at import time, capped at 300), and `bleed_size` /
-         *     `safe_size` (floats in the design's unit, present only when the corresponding zone is
-         *     enabled).
+         *     `safe_size` (floats in the design's unit). **All three are always present on a printer
+         *     format** — a design with no stored print settings, or with a zone disabled, reports the
+         *     values the renderer itself uses: `dpi: 300` and `bleed_size` / `safe_size` of `0`, where
+         *     0 means the zone is off. Read them unconditionally; there is no need to test for the keys.
          *
          *     For animated designs, the response additionally carries the animation model: a
          *     top-level `animation` object (`duration` — timeline length in seconds; `screenshot_at_s`
@@ -100,8 +102,9 @@ export interface paths {
          *
          *     For printer designs the response additionally carries the format's print settings
          *     read-only: `dpi` (integer render DPI computed at import time, capped at 300), and
-         *     `bleed_size` / `safe_size` (floats in the design's unit, present only when the
-         *     corresponding zone is enabled).
+         *     `bleed_size` / `safe_size` (floats in the design's unit, `0` when the zone is off). All
+         *     three are always present on a printer format; a design with no stored print settings
+         *     reports the renderer's own defaults (`dpi: 300`, zones `0`).
          *
          *     For animated designs the response additionally carries the design's `animation`
          *     object (`duration`, `screenshot_at_s` — seconds), per-element `animation`
@@ -499,6 +502,10 @@ export interface components {
              *     A FLAT array of problem objects — object keys dotted, array indices bracketed
              *     (`formats[0].layers`, `elements.root.background_color`) — the same item shape
              *     as the design-import error contract, so one parser reads every API error.
+             *
+             *     This holds for detail produced downstream too: the generation engine reports its own
+             *     field errors in a different shape, and they are translated to this one before the
+             *     response is written. `path` and `code` are always present.
              */
             errors?: {
                 /** @description Location of the failing field (dotted keys, bracketed indices). */
