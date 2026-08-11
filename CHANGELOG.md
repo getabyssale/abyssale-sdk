@@ -39,6 +39,11 @@ All notable changes to `@abyssale/sdk` are documented here.
   the documented "branch on `err.id`" contract. Timeout and empty-response failures were also
   plain `Error`s; all three are now `AbyssalePollingError` with the original on `.cause`.
 
+### Changed (types)
+- `ErrorResponse.id` is now **required** (`id: string`, was `id?: string`). The API guarantees it
+  on every error response, and typing it optional forced callers into `err.id!` or a fallback
+  branch the API never takes. Requires API `v2026-08-10` or later.
+
 ### Removed
 - **`index.js`** — a hand-written CommonJS client from the repo's first commit, superseded by
   `src/index.ts` and unreferenced since (it was not even published: `files` ships `dist/` only).

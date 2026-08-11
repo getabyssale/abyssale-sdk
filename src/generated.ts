@@ -478,7 +478,7 @@ export interface components {
              *     `generation_request_gone`, `visual_not_found`, `unauthorized`,
              *     `api_access_denied`, `endpoint_not_found`, `internal_server_error`.
              */
-            id?: string;
+            id: string;
             /**
              * @description Field-level validation detail, present on 400 `invalid_payload` responses.
              *     A FLAT array of problem objects — object keys dotted, array indices bracketed
