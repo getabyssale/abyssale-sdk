@@ -486,22 +486,43 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * @description **The error shape for this entire API.** Every failure, on every endpoint, at every
+         *     status, is this object — there is no second envelope to detect and no per-endpoint
+         *     variant. `id` and `message` are always present; `errors` appears only when there is
+         *     field-level detail to give.
+         * @example {
+         *       "id": "invalid_payload",
+         *       "message": "One or more request fields are invalid.",
+         *       "errors": [
+         *         {
+         *           "path": "formats[0].width",
+         *           "code": "out_of_range",
+         *           "message": "Must be greater than or equal to 1 and less than or equal to 5000.",
+         *           "expected": {
+         *             "min": 1,
+         *             "max": 5000
+         *           },
+         *           "received": 99999999
+         *         }
+         *       ]
+         *     }
+         */
         ErrorResponse: {
             /** @description Human-readable error message. */
             message: string;
             /**
-             * @description Machine-readable error code identifier. Branch on this rather than on `message`,
-             *     which is prose and may change.
+             * @description Machine-readable error code. Branch on this rather than on `message`, which is prose
+             *     and may change. **Present on every error this API returns**, on every endpoint, at
+             *     every status — there is no second error shape to detect.
              *
-             *     **Present on every response that uses THIS envelope** — `{id, message}`, which is what
-             *     handler errors, `401` and `404` return. The Design Import endpoints, `invalid_query_param`
-             *     and the catch-all `500` answer the *structured* envelope instead
-             *     (`{"errors": [{path, code, message}]}`, no `id` sibling — see `DesignImportErrorResponse`),
-             *     where the machine-readable code is each item's `code`. Every error carries a code one
-             *     way or the other; which envelope you get is fixed per endpoint and documented on each
-             *     response below.
+             *     When `errors` is present, `id` is the response-level code: the shared code if every
+             *     entry agrees, otherwise `invalid_payload`, meaning "read `errors`".
              *
-             *     This includes errors the generation pipeline raises downstream and this API relays:
+             *     Codes are added over time. Treat one you do not recognise as generic and fall back to
+             *     `message`; that keeps a new code from being a breaking change.
+             *
+             *     This covers errors the generation pipeline raises downstream and this API relays:
              *     they carry no code of their own, so one is derived (`format_not_found`,
              *     `template_not_found`, `invalid_payload`, …) and a refusal that matches none of the
              *     known cases is reported as `cannot_build_banner` rather than as a bare `message`.
@@ -510,27 +531,27 @@ export interface components {
              *     `invalid_payload`, `invalid_filetype`, `more_than_one_format`,
              *     `cannot_build_banner`, `rate_limit_exceeded`, `generation_request_not_found`,
              *     `generation_request_gone`, `visual_not_found`, `unauthorized`,
-             *     `api_access_denied`, `endpoint_not_found`, `internal_server_error`.
+             *     `api_access_denied`, `endpoint_not_found`, `method_not_allowed`, `invalid_json`,
+             *     `internal_error`.
              */
             id: string;
             /**
-             * @description Field-level validation detail, present on 400 `invalid_payload` responses.
-             *     A FLAT array of problem objects — object keys dotted, array indices bracketed
-             *     (`formats[0].layers`, `elements.root.background_color`) — the same item shape
-             *     as the design-import error contract, so one parser reads every API error.
+             * @description Field-level detail. **Present only when there is some** — its absence means the error
+             *     is not about a particular field, not that detail was withheld. When present it is
+             *     always a non-empty FLAT array of problem objects; it is never an object, never null
+             *     and never empty.
+             *
+             *     Object keys are dotted and array indices bracketed (`formats[0].layers`,
+             *     `elements.root.background_color`), so one parser reads every API error.
              *
              *     This holds for detail produced downstream too: the generation engine reports its own
              *     field errors in a different shape, and they are translated to this one before the
-             *     response is written. `path` and `code` are always present.
+             *     response is written.
+             *
+             *     Entries may carry keys beyond the three required ones (`expected`, `received`).
+             *     Ignore ones you do not recognise — more may be added.
              */
-            errors?: {
-                /** @description Location of the failing field (dotted keys, bracketed indices). */
-                path: string;
-                /** @description Machine-readable problem code (e.g. `invalid_payload`, `missing_required`, `unknown_field`, `unknown_enum_value`, `wrong_type`, `out_of_range`). */
-                code: string;
-                /** @description Human-readable reason. */
-                message: string;
-            }[];
+            errors?: components["schemas"]["Problem"][];
             version?: components["schemas"]["ApiVersion"];
         };
         /**
@@ -543,6 +564,64 @@ export interface components {
          * @enum {string}
          */
         ApiVersion: "v2026-08-10";
+        Problem: {
+            /**
+             * @description Path into the request body where the problem applies. **Syntax (normative):** object
+             *     keys are dotted, array indices are bracketed — `formats[0].width`,
+             *     `pages[2].layers[7].layout.x`, `target.project_uuid`. A whole array/object is named
+             *     bare (`layers`, `pages`, `body`, `uploads`), as are the document-level
+             *     `printer_multipage` print settings (`unit`, `width`, `height`, `dpi`).
+             * @example layers[2].properties.font_size
+             */
+            path?: string;
+            /**
+             * @description Name of the layer the entry belongs to. Present on `GET /designs/{designId}/as-import`
+             *     warnings that were raised while transforming a layer, absent everywhere else — an index
+             *     in `path` identifies a position in the emitted array, which is not the name the caller
+             *     sees in the editor. Group on this rather than parsing `path`.
+             * @example headline
+             */
+            layer?: string;
+            /**
+             * @description Stable, machine-readable code. Agents should branch on `code`, not on `message`.
+             *
+             *     Always present on errors. **Omitted on informational warnings** returned by
+             *     `GET /designs/{designId}/as-import`, which carry only `message` (and `layer` when the
+             *     warning was raised while transforming a layer) — see the `warnings` description on
+             *     that operation.
+             *
+             *     Payload/validation codes: `missing_required`, `unknown_field`, `wrong_type`,
+             *     `out_of_range`, `unknown_enum_value`, `unknown_format_key`, `duplicate_layer_name`,
+             *     `duplicate_format_name`, `reserved_format_name`, `project_not_found` (**400**),
+             *     `conditional_dependency_missing`, `invalid_payload`, `unsupported_for_type`,
+             *     `unknown_font`, `unreachable_src`, `mutually_exclusive` (two fields that cannot be
+             *     combined were both supplied).
+             *     Upload/lifecycle codes: `missing_assets`, `template_import_already_processed`,
+             *     `not_found` (**404** — the import does not exist for this company).
+             *     Export code: `not_round_trippable`.
+             *     Transport codes: `invalid_query_param` (an unparseable query-parameter value; `path`
+             *     is the parameter name), `internal_error` (an unhandled server-side error, returned in
+             *     this same envelope with a 500 status).
+             *     Build-phase failure codes (surfaced in the status response's `error`):
+             *     `text_fit_failed`, `image_processing_failed` (genuine image failures only),
+             *     `media_processing_failed` (a video/audio container could not be resolved or
+             *     processed), `invalid_asset` (an asset arrived but could not be decoded — truncated or
+             *     corrupt), `font_resolution_failed`, `import_failed` (fallback for a processing failure
+             *     with no more specific code).
+             * @example out_of_range
+             */
+            code?: string;
+            /** @example font_size must be between 2 and 1000 */
+            message: string;
+            /**
+             * @description Type-dependent. For enums an array of allowed values; for ranges `{ min, max }`; for
+             *     `missing_assets` the list of unfulfilled upload targets. Present on `out_of_range` and
+             *     `unknown_enum_value` for schema-derived problems as well as hand-written ones.
+             */
+            expected?: unknown;
+            /** @description The offending value (omitted when not meaningful). */
+            received?: unknown;
+        };
         Banner: {
             /**
              * Format: uuid
@@ -1698,7 +1777,7 @@ export interface components {
             content: {
                 /**
                  * @example {
-                 *       "message": "429 Too Many Requests",
+                 *       "message": "Too Many Requests",
                  *       "id": "rate_limit_exceeded"
                  *     }
                  */
@@ -1711,12 +1790,6 @@ export interface components {
                 [name: string]: unknown;
             };
             content: {
-                /**
-                 * @example {
-                 *       "message": "Internal server error",
-                 *       "id": "internal_server_error"
-                 *     }
-                 */
                 "application/json": components["schemas"]["ErrorResponse"];
             };
         };
