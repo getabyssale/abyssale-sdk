@@ -53,7 +53,7 @@ export interface paths {
          *
          *     For animated designs, the response additionally carries the animation model: a
          *     top-level `animation` object (`duration` — timeline length in seconds; `screenshot_at_s`
-         *     — the HTML5 backup-screenshot moment, nullable on legacy designs), a per-element
+         *     — the HTML5 backup-screenshot moment, null on designs created before it was recorded), a per-element
          *     `animation` object (`start_at_s`, `end_at_s`, `tweens` `[{id, type, keyframes}]` with
          *     raw keyframe objects) on elements that carry timing or tweens, and video/audio media
          *     attributes (`video_url`/`audio_url`, `video_duration`, `video_muted`/`audio_muted`,
@@ -535,14 +535,15 @@ export interface components {
              *     `company_not_found`, `company_payment_required`, `conditional_dependency_missing`,
              *     `download_error`, `download_limited_reached`, `duplicate_format_name`,
              *     `duplicate_layer_name`, `duplication_request_gone`, `duplication_request_not_found`,
-             *     `endpoint_not_found`, `format_not_found`, `generation_request_gone`,
+             *     `endpoint_not_found`, `feature_not_in_plan`, `format_not_found`, `generation_request_gone`,
              *     `generation_request_not_found`, `image_fetching_error`, `internal_error`,
              *     `internal_server_error`, `invalid_design_type`, `invalid_filetype`, `invalid_json`,
              *     `invalid_payload`, `invalid_query_param`, `method_not_allowed`, `missing_assets`,
              *     `missing_required`, `more_than_one_format`, `mutually_exclusive`, `not_acceptable`,
              *     `not_found`, `not_related_to_same_format`, `not_related_to_same_template`,
              *     `not_round_trippable`, `out_of_range`, `project_already_exists`, `project_not_found`,
-             *     `rate_limit_exceeded`, `rendering_failed`, `reserved_format_name`,
+             *     `rate_limit_exceeded`, `rendering_failed`, `request_rate_limited`,
+             *     `reserved_format_name`,
              *     `template_form_deleted`, `template_form_disabled`, `template_form_inactive`,
              *     `template_form_not_found`, `template_import_already_processed`, `template_not_active`,
              *     `template_not_found`, `template_not_static`, `unauthorized`, `unknown_enum_value`,
@@ -960,7 +961,7 @@ export interface components {
              */
             duration?: number | null;
             /**
-             * @description The moment the HTML5 backup screenshot is taken (seconds). Null on legacy designs
+             * @description The moment the HTML5 backup screenshot is taken (seconds). Null on designs created before it was recorded
              *     that never stored it; always set on imported designs.
              * @example 8
              */
@@ -1809,18 +1810,24 @@ export interface components {
                 "application/json": components["schemas"]["ErrorResponse"];
             };
         };
-        /** @description Too Many Requests — request rate limit exceeded (10 req/s). */
+        /**
+         * @description Too Many Requests. Two different limits answer here, and the `id` tells them apart:
+         *
+         *     - `request_rate_limited` — the per-workspace request rate limit for this class of
+         *       route. Wait `Retry-After` seconds and retry; `X-RateLimit-Remaining` on every
+         *       response reports how much budget is left, so this is avoidable.
+         *     - `rate_limit_exceeded` — the gateway's global ceiling, or a plan / credit
+         *       restriction. Retrying does not help until the plan or the credit balance changes.
+         */
         TooManyRequests: {
             headers: {
+                "Retry-After": components["headers"]["RetryAfter"];
+                "X-RateLimit-Limit": components["headers"]["XRateLimitLimit"];
+                "X-RateLimit-Remaining": components["headers"]["XRateLimitRemaining"];
+                "X-RateLimit-Reset": components["headers"]["XRateLimitReset"];
                 [name: string]: unknown;
             };
             content: {
-                /**
-                 * @example {
-                 *       "message": "Too Many Requests",
-                 *       "id": "rate_limit_exceeded"
-                 *     }
-                 */
                 "application/json": components["schemas"]["ErrorResponse"];
             };
         };
@@ -1842,7 +1849,31 @@ export interface components {
         DesignId: string;
     };
     requestBodies: never;
-    headers: never;
+    headers: {
+        /**
+         * @description Requests allowed in the current window for this class of route. When several windows
+         *     apply (a burst window and a sustained one), this describes the one closest to being
+         *     exhausted — the one you will actually hit.
+         * @example 10
+         */
+        XRateLimitLimit: number;
+        /**
+         * @description Requests still allowed in the window described by `X-RateLimit-Limit`.
+         * @example 4
+         */
+        XRateLimitRemaining: number;
+        /**
+         * @description Unix timestamp (seconds) at which that window rolls over and the budget resets.
+         * @example 1786000020
+         */
+        XRateLimitReset: number;
+        /**
+         * @description Seconds to wait before retrying. Sent only on a `429 request_rate_limited`, and never
+         *     `0` — retrying sooner will be refused again.
+         * @example 27
+         */
+        RetryAfter: number;
+    };
     pathItems: never;
 }
 export type $defs = Record<string, never>;
@@ -1961,12 +1992,14 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
-            /** @description Design Not found (`template_not_found`) */
+            /** @description Design not found (`template_not_found`). */
             404: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
             };
             429: components["responses"]["TooManyRequests"];
             500: components["responses"]["InternalServerError"];
@@ -2117,12 +2150,14 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
-            /** @description Format Not found */
+            /** @description Format not found (`format_not_found`). */
             404: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
             };
             429: components["responses"]["TooManyRequests"];
             500: components["responses"]["InternalServerError"];
@@ -2187,15 +2222,19 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
             };
             401: components["responses"]["Unauthorized"];
-            /** @description Design Not found (`template_not_found`) */
+            /** @description Design not found (`template_not_found`). */
             404: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
             };
             429: components["responses"]["TooManyRequests"];
             500: components["responses"]["InternalServerError"];
@@ -2223,12 +2262,14 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
-            /** @description A banner with the specified ID was not found. */
+            /** @description Banner not found (`visual_not_found`). */
             404: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
             };
             429: components["responses"]["TooManyRequests"];
             500: components["responses"]["InternalServerError"];
@@ -2450,6 +2491,9 @@ export interface operations {
             /** @description Export queued; keep `export_id` to match the webhook. */
             200: {
                 headers: {
+                    "X-RateLimit-Limit": components["headers"]["XRateLimitLimit"];
+                    "X-RateLimit-Remaining": components["headers"]["XRateLimitRemaining"];
+                    "X-RateLimit-Reset": components["headers"]["XRateLimitReset"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -2564,19 +2608,23 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
-            /** @description Generation request not found (`generation_request_not_found`) */
+            /** @description Generation request not found (`generation_request_not_found`). */
             404: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
             };
             /** @description Gone — the generation request expired (`generation_request_gone`; requests are kept 7 days). */
             410: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
             };
             429: components["responses"]["TooManyRequests"];
             500: components["responses"]["InternalServerError"];
@@ -2744,12 +2792,14 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
-            /** @description Workspace template Or Project not found */
+            /** @description Workspace template or project not found (`workspace_template_not_found`). */
             404: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
             };
             429: components["responses"]["TooManyRequests"];
             500: components["responses"]["InternalServerError"];
@@ -2780,12 +2830,14 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
-            /** @description Duplication request not found */
+            /** @description Duplication request not found (`duplication_request_not_found`). */
             404: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
             };
             429: components["responses"]["TooManyRequests"];
             500: components["responses"]["InternalServerError"];
