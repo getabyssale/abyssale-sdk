@@ -527,12 +527,28 @@ export interface components {
              *     `template_not_found`, `invalid_payload`, …) and a refusal that matches none of the
              *     known cases is reported as `cannot_build_banner` rather than as a bare `message`.
              *
-             *     Common values: `template_not_found`, `template_not_static`, `format_not_found`,
-             *     `invalid_payload`, `invalid_filetype`, `more_than_one_format`,
-             *     `cannot_build_banner`, `rate_limit_exceeded`, `generation_request_not_found`,
-             *     `generation_request_gone`, `visual_not_found`, `unauthorized`,
-             *     `api_access_denied`, `endpoint_not_found`, `method_not_allowed`, `invalid_json`,
-             *     `internal_error`.
+             *     Every value, as of this release. The list is generated from the API's code registry
+             *     and covered by a test, so it cannot drift — but it is a snapshot, not a closed enum:
+             *     treat an unrecognised code as generic rather than as a parse failure.
+             *
+             *     `api_access_denied`, `banners_not_found`, `cannot_build_banner`, `company_disabled`,
+             *     `company_not_found`, `company_payment_required`, `conditional_dependency_missing`,
+             *     `download_error`, `download_limited_reached`, `duplicate_format_name`,
+             *     `duplicate_layer_name`, `duplication_request_gone`, `duplication_request_not_found`,
+             *     `endpoint_not_found`, `format_not_found`, `generation_request_gone`,
+             *     `generation_request_not_found`, `image_fetching_error`, `internal_error`,
+             *     `internal_server_error`, `invalid_design_type`, `invalid_filetype`, `invalid_json`,
+             *     `invalid_payload`, `invalid_query_param`, `method_not_allowed`, `missing_assets`,
+             *     `missing_required`, `more_than_one_format`, `mutually_exclusive`, `not_acceptable`,
+             *     `not_found`, `not_related_to_same_format`, `not_related_to_same_template`,
+             *     `not_round_trippable`, `out_of_range`, `project_already_exists`, `project_not_found`,
+             *     `rate_limit_exceeded`, `rendering_failed`, `reserved_format_name`,
+             *     `template_form_deleted`, `template_form_disabled`, `template_form_inactive`,
+             *     `template_form_not_found`, `template_import_already_processed`, `template_not_active`,
+             *     `template_not_found`, `template_not_static`, `unauthorized`, `unknown_enum_value`,
+             *     `unknown_field`, `unknown_font`, `unknown_format_key`, `unreachable_src`,
+             *     `unsupported_for_type`, `unsupported_media_type`, `visual_not_found`,
+             *     `workspace_template_not_found`, `wrong_type`
              */
             id: string;
             /**
@@ -564,6 +580,43 @@ export interface components {
          * @enum {string}
          */
         ApiVersion: "v2026-08-10";
+        /**
+         * @description One non-fatal note attached to an otherwise successful response — the `warnings` array on
+         *     `GET /designs/{designId}/as-import` and on the import status endpoint. Only `message` is
+         *     guaranteed: an entry with no `code` is informational and carries no stable machine
+         *     identity, so branch only on entries that have one.
+         *
+         *     Same field meanings as `Problem`; split from it because `code` is required there.
+         */
+        Warning: {
+            /** @description Human-readable explanation. */
+            message: string;
+            /**
+             * @description Stable, machine-readable code, when the warning has one. Absent on purely
+             *     informational entries.
+             * @example color_converted
+             */
+            code?: string;
+            /**
+             * @description Where in the payload the warning applies, same syntax as `Problem.path`.
+             * @example layers[2].properties.color
+             */
+            path?: string;
+            /**
+             * @description Name of the layer the entry belongs to, when it was raised while transforming a
+             *     layer. An index in `path` identifies a position in the emitted array, which is not
+             *     the name the caller sees in the editor — group on this rather than parsing `path`.
+             * @example headline
+             */
+            layer?: string;
+        };
+        /**
+         * @description One field-level error inside `ErrorResponse.errors`. `code` and `message` are always
+         *     present; `path` is omitted when the error is not about a particular field (an unhandled
+         *     `500`, for instance). Informational warnings are a DIFFERENT shape — see `Warning` —
+         *     because a warning may legitimately carry no `code`, and one schema cannot say
+         *     "required here, optional there".
+         */
         Problem: {
             /**
              * @description Path into the request body where the problem applies. **Syntax (normative):** object
@@ -585,11 +638,6 @@ export interface components {
             /**
              * @description Stable, machine-readable code. Agents should branch on `code`, not on `message`.
              *
-             *     Always present on errors. **Omitted on informational warnings** returned by
-             *     `GET /designs/{designId}/as-import`, which carry only `message` (and `layer` when the
-             *     warning was raised while transforming a layer) — see the `warnings` description on
-             *     that operation.
-             *
              *     Payload/validation codes: `missing_required`, `unknown_field`, `wrong_type`,
              *     `out_of_range`, `unknown_enum_value`, `unknown_format_key`, `duplicate_layer_name`,
              *     `duplicate_format_name`, `reserved_format_name`, `project_not_found` (**400**),
@@ -610,7 +658,7 @@ export interface components {
              *     with no more specific code).
              * @example out_of_range
              */
-            code?: string;
+            code: string;
             /** @example font_size must be between 2 and 1000 */
             message: string;
             /**
