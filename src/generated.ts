@@ -628,14 +628,6 @@ export interface components {
              */
             path?: string;
             /**
-             * @description Name of the layer the entry belongs to. Present on `GET /designs/{designId}/as-import`
-             *     warnings that were raised while transforming a layer, absent everywhere else — an index
-             *     in `path` identifies a position in the emitted array, which is not the name the caller
-             *     sees in the editor. Group on this rather than parsing `path`.
-             * @example headline
-             */
-            layer?: string;
-            /**
              * @description Stable, machine-readable code. Agents should branch on `code`, not on `message`.
              *
              *     Payload/validation codes: `missing_required`, `unknown_field`, `wrong_type`,
