@@ -69,14 +69,22 @@ export interface paths {
          *     that page's element list.
          *
          *     **Group layers require `?i=advanced`.** By default this endpoint returns its original
-         *     released shape, in which no `group` element ever appears — a `group` layer's children
-         *     are listed individually and the group itself is invisible. Pass `i=advanced` to have
-         *     `group` elements injected (into `elements`, or into each page's list in
-         *     `elements_per_page` on a multipage design), each carrying its `layout`, its `group`
-         *     block (`layer_ids` and, except on animated designs, `auto_layout` /
-         *     `direction` / `placement` / `gap`) and its computed `hidden` / `locked`. The
-         *     per-format read `GET /designs/{designId}/formats/{formatSpecifier}` is always the
-         *     advanced view and needs no parameter.
+         *     released shape, in which no group layer appears at all — its children are listed
+         *     individually and the group itself is invisible. Pass `i=advanced` to have them injected
+         *     (into `elements`, or into each page's list in `elements_per_page` on a multipage design).
+         *     Each one carries `layer_ids` (one list for the whole design — a group holds the same
+         *     children in every format), a per-format `layout`, its computed `hidden` / `locked`, and,
+         *     except on animated designs, a per-format `group` block of auto-layout settings
+         *     (`auto_layout` / `direction` / `placement` / `gap`).
+         *
+         *     A **masked** group — one whose members are clipped to a shape — is still `type: "group"`
+         *     and additionally carries `mask`, keyed by format. The geometry can differ per format, but
+         *     a group is masked in all of its formats or in none, so the presence of `mask` is what
+         *     distinguishes a masked group from a plain one.
+         *
+         *     The per-format read `GET /designs/{designId}/formats/{formatSpecifier}` is always the
+         *     advanced view and needs no parameter; there `layout`, `mask` and `group` are flattened to
+         *     the single format.
          */
         get: operations["getDesign"];
         put?: never;
@@ -482,8 +490,16 @@ export interface components {
             /** @description Human-readable error message. */
             message: string;
             /**
-             * @description Machine-readable error code identifier. **Present on every error response** —
-             *     branch on this rather than on `message`, which is prose and may change.
+             * @description Machine-readable error code identifier. Branch on this rather than on `message`,
+             *     which is prose and may change.
+             *
+             *     **Present on every response that uses THIS envelope** — `{id, message}`, which is what
+             *     handler errors, `401` and `404` return. The Design Import endpoints, `invalid_query_param`
+             *     and the catch-all `500` answer the *structured* envelope instead
+             *     (`{"errors": [{path, code, message}]}`, no `id` sibling — see `DesignImportErrorResponse`),
+             *     where the machine-readable code is each item's `code`. Every error carries a code one
+             *     way or the other; which envelope you get is fixed per endpoint and documented on each
+             *     response below.
              *
              *     This includes errors the generation pipeline raises downstream and this API relays:
              *     they carry no code of their own, so one is derived (`format_not_found`,
