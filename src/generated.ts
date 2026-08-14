@@ -613,14 +613,21 @@ export interface components {
         };
         /**
          * @description The API version that produced this response, named by release date (`vYYYY-MM-DD`).
-         *     Stamped as a top-level field on **every** JSON object body the API returns, success and
-         *     error alike, so a client can always tell which contract answered. Array bodies (such as
-         *     the design-import listing) carry no envelope and are therefore not stamped. There is no
-         *     version-selection parameter — a single version is maintained at a time.
+         *     Stamped as a top-level field on JSON object bodies, success and error alike, so a client
+         *     can always tell which contract answered. There is no version-selection parameter — a
+         *     single version is maintained at a time.
+         *
+         *     Two kinds of body are **not** stamped. Array bodies (the listings) carry no envelope. And
+         *     a body that already has a `version` key of its own is left alone — which in practice means
+         *     `Banner`, whose `version` is the generated file's integer counter. So `GET
+         *     /banners/{bannerId}` and the synchronous generate are the two responses that do not tell
+         *     you which contract answered.
+         *
+         *     The value changes when a new version is released. Match the `vYYYY-MM-DD` shape rather than
+         *     pinning today's literal, or your client breaks on the next release.
          * @example v2026-08-10
-         * @enum {string}
          */
-        ApiVersion: "v2026-08-10";
+        ApiVersion: string;
         /**
          * @description One non-fatal note attached to an otherwise successful response — the `warnings` array on
          *     `GET /designs/{designId}/as-import` and on the import status endpoint. Only `message` is
@@ -699,9 +706,14 @@ export interface components {
              *     `missing_assets` the list of unfulfilled upload targets. Present on `out_of_range` and
              *     `unknown_enum_value` for schema-derived problems as well as hand-written ones.
              */
-            expected?: unknown;
-            /** @description The offending value (omitted when not meaningful). */
-            received?: unknown;
+            expected?: string[] | {
+                min?: number;
+                max?: number;
+            } | string;
+            /** @description The offending value, echoed back as it arrived — any JSON type. Omitted when not meaningful. */
+            received?: string | number | boolean | {
+                [key: string]: unknown;
+            } | unknown[];
         };
         Banner: {
             /**
@@ -724,7 +736,8 @@ export interface components {
             sharing_id?: string;
             file: components["schemas"]["File"];
             format?: components["schemas"]["Format"];
-            template?: components["schemas"]["Design"];
+            /** @description The design this file was generated from. */
+            template?: components["schemas"]["DesignSummary"];
             /** @description The design's project — present when the design has one. */
             project?: {
                 /** Format: uuid */
@@ -738,6 +751,7 @@ export interface components {
              */
             image?: {
                 type?: string;
+                /** Format: uri */
                 url?: string;
             };
             /** @description Platform edit URL — only for visuals bookmarked or downloaded in the platform. */
@@ -749,15 +763,19 @@ export interface components {
                 status?: string;
                 status_updated_at_ts?: number;
                 reason?: string;
+                /** @description Review feedback — content the reviewer asked to be replaced. */
+                content_to_replace?: string;
+                /** @description Review feedback — content the reviewer asked to be hidden. */
+                content_to_hide?: string;
             };
         };
         File: {
             /**
-             * @description File type
+             * @description File type. `webp` and `avif` are returned when `image_file_type` asked for them; an `html5` generation is delivered as `zip`.
              * @example jpeg
              * @enum {string}
              */
-            type: "jpeg" | "png" | "pdf" | "gif" | "mp4" | "zip";
+            type: "jpeg" | "png" | "webp" | "avif" | "pdf" | "gif" | "mp4" | "zip";
             /**
              * @description URL of the banner (useful to download the image).
              * @example https://production-banners.s3.eu-west-1.amazonaws.com/demo/996739f4-b563-428a-a6e8-ec3cb8bd03d4.jpeg
@@ -781,19 +799,19 @@ export interface components {
              * @description Identifier/name of the format. Absent on multi-page print visuals.
              * @example facebook-post
              */
-            id: string;
+            id?: string;
             /**
              * @description Unit of `width`/`height` — `px`, or `mm`/`in` on print designs.
              * @example px
              */
             unit?: string;
             /**
-             * @description Width of the format.
+             * @description Width of the format, in `unit`. A float on print designs (mm/in).
              * @example 1200
              */
             width: number;
             /**
-             * @description Height of the format.
+             * @description Height of the format, in `unit`. A float on print designs (mm/in).
              * @example 1200
              */
             height: number;
@@ -807,7 +825,7 @@ export interface components {
             id: string;
             /**
              * Format: uuid
-             * @description Deprecated duplicate of `id`, always present and always equal to it. Kept for existing clients — read `id`.
+             * @description Deprecated duplicate of `id`, equal to it. Present on the single-design read; **not** emitted by the `GET /designs` listing. Kept for existing clients — read `id`.
              * @example 64238d01-d402-474b-8c2d-fbc957e9d290
              */
             template_id?: string;
@@ -821,7 +839,7 @@ export interface components {
              * @example static
              * @enum {string}
              */
-            type: "static" | "animated" | "printer" | "printer_multipage";
+            type: "static" | "printer" | "animated" | "printer_multipage";
             /**
              * @description Timestamp of when the design has been created.
              * @example 1649942114
@@ -834,15 +852,15 @@ export interface components {
             updated_at: number;
             /**
              * Format: uuid
-             * @description Unique identifier (UUID) of the project the design belongs to.
+             * @description Unique identifier (UUID) of the project the design belongs to. `null` when the project cannot be resolved.
              * @example 9d1f2b7c-5a44-4c3e-9f21-0b8e6d4a1c73
              */
-            project_id: string;
+            project_id: string | null;
             /**
-             * @description Name of the project the design belongs to.
+             * @description Name of the project the design belongs to. `null` when the project cannot be resolved.
              * @example Fall campaigns
              */
-            project_name: string;
+            project_name: string | null;
             /**
              * Format: uuid
              * @deprecated
@@ -880,7 +898,7 @@ export interface components {
              * @example static
              * @enum {string}
              */
-            type: "static" | "animated" | "printer" | "printer_multipage";
+            type: "static" | "printer" | "animated" | "printer_multipage";
             /**
              * @description Timestamp of when the workspace template has been created.
              * @example 1649942114
@@ -938,6 +956,37 @@ export interface components {
              */
             created_at?: number;
         };
+        /** @description A short reference to a design, nested inside another resource. Deliberately narrower than `Design` — only the fields the parent resource carries. */
+        DesignSummary: {
+            /**
+             * Format: uuid
+             * @description Unique identifier (UUID) of the design.
+             * @example 64238d01-d402-474b-8c2d-fbc957e9d290
+             */
+            id: string;
+            /**
+             * @description Name of the design.
+             * @example Ad campaign fall 2025
+             */
+            name: string;
+            /** @example 1649942114 */
+            created_at?: number;
+            /** @example 1649942114 */
+            updated_at?: number;
+        };
+        /** @description The design a format belongs to, as returned nested in `GET /designs/{designId}/formats/{formatSpecifier}`. */
+        DesignFormatSummary: components["schemas"]["DesignSummary"] & {
+            /**
+             * @example static
+             * @enum {string}
+             */
+            type?: "static" | "printer" | "animated" | "printer_multipage";
+            /**
+             * @deprecated
+             * @description Deprecated alias of the project name — see `Design.category_name`.
+             */
+            category_name?: string | null;
+        };
         DesignFormat: {
             /**
              * @description Unique identifier (name) of the format.
@@ -983,12 +1032,12 @@ export interface components {
              */
             dpi?: number;
             /**
-             * @description Printer designs only. Bleed size as a float in the design's unit (mm/in). Present only when bleed is enabled on the format.
+             * @description Printer designs only. Bleed size as a float in the design's unit (mm/in). Always present on a printer format; `0` means the zone is off.
              * @example 3.5
              */
             bleed_size?: number;
             /**
-             * @description Printer designs only. Safe-zone size as a float in the design's unit (mm/in). Present only when the safe zone is enabled on the format.
+             * @description Printer designs only. Safe-zone size as a float in the design's unit (mm/in). Always present on a printer format; `0` means the zone is off.
              * @example 5
              */
             safe_size?: number;
@@ -1014,14 +1063,36 @@ export interface components {
              */
             name: string;
             /**
-             * @description Layer type
+             * @description Layer type. `group` elements are injected only on the platform advanced view (`i=advanced`); a masked group reports `group` too, with a `mask` block.
              * @example text
              * @enum {string}
              */
-            type: "container" | "text" | "button" | "image" | "logo" | "shape" | "illustration" | "rating" | "qrcode" | "chart" | "video" | "audio";
+            type: "container" | "text" | "button" | "image" | "logo" | "shape" | "illustration" | "rating" | "qrcode" | "chart" | "video" | "audio" | "group";
+            /** @description The element's box, **keyed by format name**. */
+            layout?: {
+                [key: string]: components["schemas"]["ElementLayout"];
+            };
+            /** @description `group` layers only — the names of the layers this group contains. */
+            layer_ids?: string[];
+            /** @description `group` layers only — computed visibility, keyed by format name. */
+            hidden?: {
+                [key: string]: boolean;
+            };
+            /** @description `group` layers only — computed lock state, keyed by format name. */
+            locked?: {
+                [key: string]: boolean;
+            };
+            /** @description `group` layers only — auto-layout settings, keyed by format name. */
+            group?: {
+                [key: string]: components["schemas"]["GroupLayout"];
+            };
+            /** @description Masked `group` layers only — the mask geometry, keyed by format name. Presence is a layer-level fact: a layer is a masked group in every format or in none. */
+            mask?: {
+                [key: string]: components["schemas"]["GroupMask"];
+            };
             /**
              * @description Animated designs only; present when the element carries timeline timing or tweens.
-             *     `keyframes` items are raw objects (several keyframe schema generations coexist).
+             *     An injected `group` layer carries `start_at_s` / `end_at_s` only — never `tweens`.
              */
             animation?: {
                 /** @example 0.79 */
@@ -1033,7 +1104,18 @@ export interface components {
                     id?: string;
                     /** @enum {string} */
                     type?: "slide" | "fade" | "scale" | "rotate" | "audioFade" | "textEffect";
-                    keyframes?: Record<string, never>[];
+                    keyframes?: ({
+                        /** @example opacity */
+                        attr?: string;
+                        data?: {
+                            /** @example start */
+                            type?: string;
+                            /** @example 0 */
+                            time?: number;
+                        };
+                    } & {
+                        [key: string]: unknown;
+                    })[];
                 }[];
             };
             /** @description List of all attributes */
@@ -1047,16 +1129,128 @@ export interface components {
                  * @description An helper to understand what is this attribute
                  * @example Text content (i.e. Lorem ipsum)
                  */
-                help: string;
+                help?: string;
                 /**
                  * @example {
                  *       "facebook-post": "My image title"
                  *     }
                  */
                 values: {
-                    [key: string]: string;
+                    [key: string]: string | number | boolean;
                 };
             }[];
+        };
+        /** @description An element's box. Integers in pixels on `static`/`animated`; floats in the design's physical unit (mm/in) on `printer`. */
+        ElementLayout: {
+            /** @example 0 */
+            x?: number;
+            /** @example 0 */
+            y?: number;
+            /** @example 3333 */
+            width?: number;
+            /** @example 666 */
+            height?: number;
+        };
+        /** @description Auto-layout settings of a `group` layer. **Empty on animated designs** — the platform stores no auto-layout there. `direction`, `placement` and `gap` appear only when `auto_layout` is on. */
+        GroupLayout: {
+            auto_layout?: boolean;
+            direction?: string;
+            placement?: string;
+            /** @description Pixels on static/animated; a physical-unit float on printer. */
+            gap?: number;
+        };
+        /** @description Mask geometry of a masked `group` layer. */
+        GroupMask: {
+            shape: string;
+            width?: number;
+            height?: number;
+            center_x?: number;
+            center_y?: number;
+            rx?: number;
+            ry?: number;
+            rotation?: number;
+            radius?: number | {
+                tl?: number;
+                tr?: number;
+                br?: number;
+                bl?: number;
+            };
+        };
+        /** @description Animated designs only — the element's own timeline window, in seconds. */
+        ElementAnimationTiming: {
+            start_at_s?: number | null;
+            end_at_s?: number | null;
+        };
+        /**
+         * @description An element as `GET /designs/{designId}/formats/{formatSpecifier}` returns it — the
+         *     **single-format projection** of `DesignElement`.
+         *
+         *     The endpoint answers for one format, so the per-format maps are collapsed: an attribute
+         *     carries a single `value` instead of `values` keyed by format name, and `layout` is that
+         *     format's box instead of a map. This is deliberate, not drift — do not "align" it with
+         *     `DesignElement`. An attribute the requested format does not define is omitted entirely.
+         */
+        DesignFormatElement: {
+            /**
+             * @description Layer name (`root` is a special element that allows to customize the image background color.)
+             * @example root
+             */
+            name: string;
+            /**
+             * @description Layer type
+             * @example container
+             * @enum {string}
+             */
+            type: "container" | "text" | "button" | "image" | "logo" | "shape" | "illustration" | "rating" | "qrcode" | "chart" | "video" | "audio" | "group";
+            settings?: {
+                /**
+                 * @description Whether the element is mandatory
+                 * @example false
+                 */
+                is_mandatory?: boolean;
+            };
+            attributes?: {
+                /**
+                 * @description Attribute identifier
+                 * @example background_color
+                 */
+                id?: string;
+                /**
+                 * @description Help text for the attribute
+                 * @example 6 or 8 digits hexadecimal background color (i.e. #F3F3F3) of the banner
+                 */
+                help?: string;
+                /**
+                 * @description The attribute's value in the requested format. Usually a string; a `video`/`audio` layer's media attributes are typed (`video_duration`/`max_volume` numbers, `video_muted`/`audio_muted` booleans).
+                 * @example #FFFFFF
+                 */
+                value?: string | number | boolean;
+            }[];
+            /** @description The element's box in the requested format. */
+            layout?: components["schemas"]["ElementLayout"];
+            /** @description `group` layers only — the names of the layers this group contains. */
+            layer_ids?: string[];
+            /** @description `group` layers only — computed visibility in this format. */
+            hidden?: boolean;
+            /** @description `group` layers only — computed lock state in this format. */
+            locked?: boolean;
+            /** @description `group` layers only — auto-layout settings in this format. */
+            group?: components["schemas"]["GroupLayout"];
+            /** @description Masked `group` layers only — the mask geometry in this format. */
+            mask?: components["schemas"]["GroupMask"];
+            /** @description `group` layers on animated designs only. */
+            animation?: components["schemas"]["ElementAnimationTiming"];
+        };
+        /**
+         * @description Variables used within the text layers of the design. Keys are variable names (without
+         *     braces), values are the placeholder as written in the design (e.g. `"{name}"`).
+         * @example {
+         *       "name": "{name}",
+         *       "title": "{title}"
+         *     }
+         */
+        DesignVariables: {
+            [key: string]: string;
         };
         Font: {
             /**
@@ -1080,7 +1274,8 @@ export interface components {
         RootElement: {
             background_color?: components["schemas"]["backgroundColor"];
         };
-        Element: {
+        /** @description Properties every layer type accepts, whatever its type. Composed into `Element` and `AsyncElement` with `allOf` so they survive the per-type `anyOf` — declared as a sibling of `anyOf` they would be dropped from every branch. */
+        SharedElementProperties: {
             /** @description `true`, `false`. If true it hides the current element */
             hidden?: boolean;
             /** @description 6-8 digits hexadecimal color */
@@ -1091,20 +1286,10 @@ export interface components {
             shadow_offset_x?: number;
             /** @description Vertical offset in pixels (can be negative) */
             shadow_offset_y?: number;
-        } & (components["schemas"]["TextElement"] | components["schemas"]["ImageElement"] | components["schemas"]["ButtonElement"] | components["schemas"]["LogoElement"] | components["schemas"]["ShapeElement"] | components["schemas"]["RatingElement"] | components["schemas"]["IllustrationElement"] | components["schemas"]["QRCodeElement"] | components["schemas"]["VideoElement"] | components["schemas"]["AudioElement"]);
+        };
+        Element: components["schemas"]["SharedElementProperties"] & (components["schemas"]["TextElement"] | components["schemas"]["ImageElement"] | components["schemas"]["ButtonElement"] | components["schemas"]["LogoElement"] | components["schemas"]["ShapeElement"] | components["schemas"]["RatingElement"] | components["schemas"]["IllustrationElement"] | components["schemas"]["QRCodeElement"] | components["schemas"]["VideoElement"] | components["schemas"]["AudioElement"]);
         /** @description Same as `Element`, but its image element also exposes AI generation properties (`text_to_image`, inpainting, background removal model) that are only available for asynchronous generation. */
-        AsyncElement: {
-            /** @description `true`, `false`. If true it hides the current element */
-            hidden?: boolean;
-            /** @description 6-8 digits hexadecimal color */
-            shadow_color?: string;
-            /** @description Blur in pixels */
-            shadow_blur?: number;
-            /** @description Horizontal offset in pixels (can be negative) */
-            shadow_offset_x?: number;
-            /** @description Vertical offset in pixels (can be negative) */
-            shadow_offset_y?: number;
-        } & (components["schemas"]["TextElement"] | components["schemas"]["AsyncImageElement"] | components["schemas"]["ButtonElement"] | components["schemas"]["LogoElement"] | components["schemas"]["ShapeElement"] | components["schemas"]["RatingElement"] | components["schemas"]["IllustrationElement"] | components["schemas"]["QRCodeElement"] | components["schemas"]["VideoElement"] | components["schemas"]["AudioElement"]);
+        AsyncElement: components["schemas"]["SharedElementProperties"] & (components["schemas"]["TextElement"] | components["schemas"]["AsyncImageElement"] | components["schemas"]["ButtonElement"] | components["schemas"]["LogoElement"] | components["schemas"]["ShapeElement"] | components["schemas"]["RatingElement"] | components["schemas"]["IllustrationElement"] | components["schemas"]["QRCodeElement"] | components["schemas"]["VideoElement"] | components["schemas"]["AudioElement"]);
         TextElement: {
             payload?: components["schemas"]["payload"];
             color?: components["schemas"]["color"];
@@ -1160,7 +1345,7 @@ export interface components {
             };
         };
         ButtonElement: {
-            payload?: components["schemas"]["payload"];
+            payload?: components["schemas"]["buttonPayload"];
             color?: components["schemas"]["color"];
             background_color?: components["schemas"]["backgroundColor"];
             background_padding?: components["schemas"]["backgroundPadding"];
@@ -1169,6 +1354,18 @@ export interface components {
             font_weight?: components["schemas"]["fontWeight"];
             line_height?: components["schemas"]["lineHeight"];
             text_transform?: components["schemas"]["textTransform"];
+            /** @description Placement of the **button box** — not of its label. A button keeps the two apart: this moves the box, `text_align` moves the label inside it. */
+            alignment?: components["schemas"]["alignment"];
+            /**
+             * @description Alignment of the **label** inside the button box. Default `center`. A button is the one layer type where these are two separate settings — on a `text` layer the alignment *is* the position.
+             * @enum {string}
+             */
+            text_align?: "left" | "center" | "right";
+            stroke_color?: components["schemas"]["strokeColor"];
+            /** @description Minimum font size allowed when `auto_resize` is enabled. */
+            min_font_size?: number;
+            /** @description Automatically adjusts the label size to fit the button. When true, `min_font_size` must also be defined. */
+            auto_resize?: boolean;
         };
         ImageElement: {
             image_url?: components["schemas"]["imageUrl"];
@@ -1287,14 +1484,18 @@ export interface components {
             /**
              * @description Activates AI image generation (text-to-image) or AI-assisted image editing (inpainting).
              *     If `image_url` (except default image) or `image_encoded` is provided, this property is ignored.
+             *
+             *     `true` uses `text_to_image_properties`. As a shorthand you may instead pass the prompt
+             *     **as a string** — optionally `"prompt,url1[,url2]"` to supply inpainting sources — which
+             *     is expanded into `text_to_image_properties` before validation.
              */
-            text_to_image?: boolean;
+            text_to_image?: boolean | string;
             text_to_image_properties?: components["schemas"]["TextToImageProperties"];
         };
         /** @description Settings for AI image generation or inpainting. */
         TextToImageProperties: {
             /**
-             * @description Description of the image to generate, or of the edit to apply when `inpaint_images` is provided.
+             * @description Description of the image to generate, or of the edit to apply when `inpaint_images` is provided. **At least 3 whitespace-separated words** — a shorter prompt is rejected.
              * @example A sleek, modern glass villa situated in the middle of a minimalist lavender field.
              */
             prompt: string;
@@ -1329,7 +1530,7 @@ export interface components {
             background_color?: components["schemas"]["backgroundColor"];
             pattern_name?: components["schemas"]["patternName"];
             pattern_color?: components["schemas"]["patternColor"];
-            stroke_width?: components["schemas"]["strokeWidth"];
+            stroke_width?: components["schemas"]["shapeStrokeWidth"];
             stroke_color?: components["schemas"]["strokeColor"];
         };
         RatingElement: {
@@ -1356,6 +1557,11 @@ export interface components {
         /** @description This element is only available for animated design */
         VideoElement: {
             video_url?: components["schemas"]["videoUrl"];
+            /**
+             * @description Mute the video's audio track. `1` mutes it, `0` keeps it; values in between scale it. Default `0`. **A number, not a boolean** — `true`/`false` answer `400 invalid_payload`. The import spells this `muted` and takes a boolean; a design read returns `video_muted` / `audio_muted`, also booleans.
+             * @example 1
+             */
+            audio_muted?: number;
         };
         /** @description Audio layer element. Only available for animated designs with MP4 output. */
         AudioElement: {
@@ -1363,11 +1569,13 @@ export interface components {
              * Format: uri
              * @description **HTTP(s) URL of the audio file.**
              *
-             *     It must be a publicly accessible link with a filesize of 30 MB maximum.
+             *     It must be a publicly accessible link with a filesize of 25 MB maximum.
              *
              *     Supported files: mp3, wav
              */
             audio_url?: string;
+            /** @description **Base64-encoded audio**, as a data URI or raw base64. Ignored when `audio_url` is given. Same 25 MB ceiling. */
+            audio_encoded?: string;
             /**
              * @description Volume level. 1 = default volume, 0.5 = half volume, 0 = silent. Default is 1.
              * @example 1
@@ -1379,7 +1587,7 @@ export interface components {
              */
             speed?: number;
         };
-        /** @description A `dictionary` containing all elements with properties you would like to override form the default design (keys correspond to layer names) */
+        /** @description A `dictionary` containing all elements with properties you would like to override from the default design (keys correspond to layer names) */
         Elements: {
             [key: string]: components["schemas"]["RootElement"] | components["schemas"]["Element"] | components["schemas"]["VideoElement"] | components["schemas"]["AudioElement"];
         };
@@ -1387,11 +1595,9 @@ export interface components {
         AsyncElements: {
             [key: string]: components["schemas"]["RootElement"] | components["schemas"]["AsyncElement"] | components["schemas"]["VideoElement"] | components["schemas"]["AudioElement"];
         };
-        /** @description A `dictionary` containing all pages with properties you would like to override form the default design (keys correspond to layer names) */
+        /** @description Per-page element overrides, keyed by page identifier (`page_1 … page_N`). Each value is a dictionary of element overrides for that page, in the same shape as `elements` on every other generation endpoint — `root` plus any layer of that page, keyed by layer name. This endpoint is asynchronous, so its image layers accept the AI properties too. */
         Pages: {
-            [key: string]: {
-                root: components["schemas"]["RootElement"];
-            };
+            [key: string]: components["schemas"]["AsyncElements"];
         };
         DuplicationRequest: {
             /**
@@ -1400,6 +1606,7 @@ export interface components {
              * @example 40c32a4e-4869-11f0-96f2-0a00d9eb8f78
              */
             duplication_request_id: string;
+            version?: components["schemas"]["ApiVersion"];
         };
         DuplicationRequestStatus: {
             /**
@@ -1432,6 +1639,7 @@ export interface components {
             target_project: components["schemas"]["ProjectSummary"];
             /** @description List of duplicated designs (empty if not completed) */
             designs: components["schemas"]["DuplicatedDesign"][];
+            version?: components["schemas"]["ApiVersion"];
         };
         ProjectSummary: {
             /**
@@ -1450,6 +1658,12 @@ export interface components {
              * @example 1749827125
              */
             created_at_ts: number;
+            /**
+             * @deprecated
+             * @description Deprecated alias of `name` — the same string, under the old noun. It does **not** describe a category the project belongs to: a project has no parent category. Returned by the `GET /projects` listing only; the `POST /projects` read-back omits it. Read `name`.
+             * @example HTML5 Tests
+             */
+            category_name?: string | null;
         };
         DuplicatedDesign: {
             /**
@@ -1487,6 +1701,36 @@ export interface components {
                 /** @description The error reason */
                 reason?: string;
             }[];
+            version?: components["schemas"]["ApiVersion"];
+        };
+        /** @description One format of a dynamic image. Deliberately **not** `DesignFormat`: this endpoint is `static`-only (anything else answers `400 template_not_static`), so it never carries `preview_url` or the printer settings, and every field below is always present. */
+        DynamicImageFormat: {
+            /**
+             * @description Identifier (name) of the format.
+             * @example facebook-post
+             */
+            id: string;
+            /**
+             * Format: uuid
+             * @description Unique UUID of the format — the last path segment of `dynamic_image_url`.
+             * @example 9b57d65e-eb2c-4a74-a51e-4482917c248a
+             */
+            uid: string;
+            /** @example 1200 */
+            width: number;
+            /** @example 1200 */
+            height: number;
+            /**
+             * @description Always `px` here; a dynamic image is only available on static designs.
+             * @example px
+             */
+            unit: string;
+            /**
+             * Format: uri
+             * @description The dynamic image URL for this format.
+             * @example https://img.abyssale.com/ecf1fe8c-5392-48c2-b6d2-665183a18fe5/9b57d65e-eb2c-4a74-a51e-4482917c248a
+             */
+            dynamic_image_url: string;
         };
         /**
          * @example {
@@ -1524,23 +1768,8 @@ export interface components {
              */
             design_id: string;
             /** @description List of formats available for this dynamic image */
-            formats: {
-                /** @description Format name */
-                id: string;
-                /** @description Format unique identifier (UUID) */
-                uid: string;
-                /** @description Width of the format in pixels */
-                width: number;
-                /** @description Unit of measurement for dimensions, e.g. px */
-                unit: string;
-                /** @description Height of the format in pixels */
-                height: number;
-                /**
-                 * Format: uri
-                 * @description URL to the dynamically generated image for this format
-                 */
-                dynamic_image_url: string;
-            }[];
+            formats: components["schemas"]["DynamicImageFormat"][];
+            version?: components["schemas"]["ApiVersion"];
         };
         /**
          * @description **The background color displayed behind the element.**
@@ -1559,6 +1788,11 @@ export interface components {
          *     - [How can I add decorations to specific parts of a text?](https://developers.abyssale.com/image-generation-properties.html#color)
          */
         payload: string;
+        /**
+         * @description **The button's label.** Same content rules as a text `payload`, but capped at 2 048
+         *     characters rather than 10 000 — the validator enforces the two separately.
+         */
+        buttonPayload: string;
         /**
          * @description **The text color.**
          *
@@ -1619,14 +1853,16 @@ export interface components {
          *     __If given, the text position will be computed from the text bounding box defined within the design.__
          * @enum {string}
          */
-        textAlignment: "top" | "middle" | "bottom" | "left" | "center" | "right" | "top left" | "top center" | "top right" | "middle left" | "middle center" | "middle right" | "bottom left" | "bottom right" | "bottom center";
+        textAlignment: "top" | "middle" | "bottom" | "left" | "center" | "right" | "top left" | "top center" | "top right" | "middle left" | "middle center" | "middle right" | "bottom left" | "bottom right" | "bottom center" | "top custom" | "middle custom" | "bottom custom" | "custom left" | "custom center" | "custom right" | "custom custom";
         /**
-         * @description **Text transformation style.** Force the text to be transformed to one of the following options: - `uppercase`: All letters become uppercase (e.g., `EXAMPLE`) - `lowercase`: All letters become lowercase (e.g., `example`) - `titlecase`: The first letter of each word is capitalized (e.g., `Example Text`) - `capitalize`: Only the first letter of the entire text is capitalized (e.g., `Example text`)
+         * @description **Text transformation style.** Force the text to be transformed to one of the following options: - `uppercase`: All letters become uppercase (e.g., `EXAMPLE`) - `lowercase`: All letters become lowercase (e.g., `example`) - `titlecase`: The first letter of each word is capitalized (e.g., `Example Text`) - `capitalize`: Only the first letter of the entire text is capitalized (e.g., `Example text`) - `none`: No transformation — send it to clear one set on the design
          * @enum {string}
          */
-        textTransform: "uppercase" | "lowercase" | "titlecase" | "capitalize";
-        /** @description **Width of the stroke** *Example: 10* */
+        textTransform: "none" | "uppercase" | "lowercase" | "titlecase" | "capitalize";
+        /** @description **Width of the stroke** *Example: 10*. Text tops out at 40; a shape layer accepts up to 60 (see `shapeStrokeWidth`). The design **import** allows up to 1000, so a design can hold a stroke this endpoint cannot reproduce — the import bound is the design's, this one is the override's. */
         strokeWidth: number;
+        /** @description **Width of the shape's stroke** *Example: 10*. The design **import** allows up to 1000 — see `strokeWidth`. */
+        shapeStrokeWidth: number;
         /**
          * @description **Stroke Color. 6-8 digits Hexa color.**. *Example: #FF0000*
          *
@@ -1637,9 +1873,10 @@ export interface components {
          * Format: uri
          * @description **HTTP(s) URL of the image** *Example: https://www.abyssale.com/imge/abyssale_logo.png*
          *
-         *     __It must be a public accessible link and have a filesize of 10 mo maximum.__
+         *     __It must be publicly accessible and at most 20 MB__ (500 MB on `printer` and
+         *     `printer_multipage` designs).
          *
-         *     Supported files: jpeg, png, webp, svg, gif
+         *     Supported files: jpeg, jpg, png, webp, svg, gif, tiff, tif, avif
          */
         imageUrl: string;
         /**
@@ -1661,10 +1898,10 @@ export interface components {
          */
         fittingType: "cover" | "fill";
         /**
-         * @description **The image alignment.** *Example: left*
+         * @description **The image alignment.** *Example: left*. A `custom` component resolves to the **centre** of that axis: `custom custom`, `custom center` and `middle custom` all place at the box centre, while `custom left` is the middle of the left edge. It is the value the editor stores for a hand-positioned layer, not a way to preserve one.
          * @enum {string}
          */
-        alignment: "top" | "middle" | "bottom" | "left" | "center" | "right" | "top left" | "top center" | "top right" | "middle left" | "middle center" | "middle right" | "bottom left" | "bottom right" | "bottom center";
+        alignment: "top" | "middle" | "bottom" | "left" | "center" | "right" | "top left" | "top center" | "top right" | "middle left" | "middle center" | "middle right" | "bottom left" | "bottom right" | "bottom center" | "top custom" | "middle custom" | "bottom custom" | "custom left" | "custom center" | "custom right" | "custom custom";
         /**
          * @description **A mask can be added to the image**.
          *
@@ -1695,7 +1932,14 @@ export interface components {
          *     }}*
          */
         maskProperties: {
-            radius?: number | Record<string, never>;
+            radius?: number | {
+                tl?: number;
+                tr?: number;
+                br?: number;
+                bl?: number;
+            };
+            /** @description Slant the mask on the y axis. */
+            skew_y?: number;
         };
         /**
          * @description **A filter can be added to the image.** *Example: grayscale*
@@ -1712,7 +1956,7 @@ export interface components {
          */
         filterProperties: {
             /** @enum {string} */
-            name?: "blue_orange" | "deep_green_light_green" | "BrightRed_light_yellow" | "brown_pale_green" | "brown_beige" | "deep_blue_green" | "deep_blue_red" | "deep_purple_orange" | "deep_purple_beige" | "deep_purple_pale_green" | "deep_blue_pale_green";
+            name?: "blue_green" | "blue_orange" | "deep_green_light_green" | "BrightRed_light_yellow" | "brown_pale_green" | "brown_beige" | "deep_blue_green" | "deep_blue_red" | "deep_purple_orange" | "deep_purple_beige" | "deep_purple_pale_green" | "deep_blue_pale_green";
         };
         /**
          * @description **A pattern can be added to the shape**.
@@ -1757,9 +2001,13 @@ export interface components {
         starColor: string;
         /** @description **Margins in pixels between stars.** *Example: 60* */
         starMargin: number;
-        /** @description **Size in pixels of one star.** *Example: 100* */
+        /** @description **Size in pixels of one star.** *Example: 100*. The design **import** requires at least 4, so this endpoint accepts smaller stars than a design can be imported with. */
         starDimension: number;
-        /** @description **The illustration library used to retrieved the illustration name. Can be: undraw, feather, twemoji or material_icons.**. */
+        /**
+         * @description **The illustration library the illustration name is looked up in.** The public libraries are `undraw`, `feather`, `twemoji` and `material_icons`.
+         *     Left as a free string rather than an enum on purpose: some workspaces have private libraries of their own, and an enum would make a generated client reject a value their API accepts.
+         * @example undraw
+         */
         illustrationType: string;
         /** @description **The illustration name.**. */
         illustrationFile: string;
@@ -1935,6 +2183,9 @@ export interface operations {
             /** @description The workspace's designs. */
             200: {
                 headers: {
+                    "X-RateLimit-Limit": components["headers"]["XRateLimitLimit"];
+                    "X-RateLimit-Remaining": components["headers"]["XRateLimitRemaining"];
+                    "X-RateLimit-Reset": components["headers"]["XRateLimitReset"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -1978,6 +2229,9 @@ export interface operations {
             /** @description The design's formats, elements and variables. */
             200: {
                 headers: {
+                    "X-RateLimit-Limit": components["headers"]["XRateLimitLimit"];
+                    "X-RateLimit-Remaining": components["headers"]["XRateLimitRemaining"];
+                    "X-RateLimit-Reset": components["headers"]["XRateLimitReset"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -1998,18 +2252,7 @@ export interface operations {
                          *     - `values`: the related value for this attribute in each format (if defined)
                          */
                         elements?: components["schemas"]["DesignElement"][];
-                        /**
-                         * @description Variables used within the text layers of the design.
-                         *     Keys represent variable names (without braces), and values
-                         *     represent the placeholder format in the design (e.g. "{name}").
-                         * @example {
-                         *       "name": "{name}",
-                         *       "title": "{title}"
-                         *     }
-                         */
-                        variables?: {
-                            [key: string]: string;
-                        };
+                        variables?: components["schemas"]["DesignVariables"];
                         animation?: components["schemas"]["DesignAnimation"];
                         /**
                          * @description **`printer_multipage` designs only** — returned *instead of* `formats`.
@@ -2068,124 +2311,24 @@ export interface operations {
             /** @description Format details retrieved successfully */
             200: {
                 headers: {
+                    "X-RateLimit-Limit": components["headers"]["XRateLimitLimit"];
+                    "X-RateLimit-Remaining": components["headers"]["XRateLimitRemaining"];
+                    "X-RateLimit-Reset": components["headers"]["XRateLimitReset"];
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        /**
-                         * @description Format identifier
-                         * @example new-format
-                         */
-                        id?: string;
-                        /**
-                         * Format: uuid
-                         * @description Unique ID for the format instance
-                         * @example 6248b96f-581a-43f0-9863-85e1b7d0ec05
-                         */
-                        uid?: string;
-                        /**
-                         * @description Width of the format in specified units
-                         * @example 3333
-                         */
-                        width?: number;
-                        /**
-                         * @description Height of the format in specified units
-                         * @example 666
-                         */
-                        height?: number;
-                        /**
-                         * @description Unit of measurement for dimensions
-                         * @example px
-                         */
-                        unit?: string;
-                        /**
-                         * Format: uri
-                         * @description URL to preview image of this format
-                         * @example https://production-banners.s3-eu-west-1.amazonaws.com/templates/e0d292f2-ec21-11e9-a539-3c408bf94152/21aff1a9-bcde-4294-8320-be6cae651381.png
-                         */
-                        preview_url?: string;
-                        /**
-                         * Format: uri
-                         * @description URL to the dynamically generated image
-                         * @example https://img.abyssale.com/673f0cb6-f1f6-4f7d-8ea2-4a0ed317efbe/6248b96f-581a-43f0-9863-85e1b7d0ec0a
-                         */
-                        dynamic_image_url?: string;
-                        /**
-                         * @description Printer designs only. Render DPI computed at import time (capped at 300). Read-only.
-                         * @example 300
-                         */
-                        dpi?: number;
-                        /**
-                         * @description Printer designs only. Bleed size (float, format unit); present only when bleed is enabled.
-                         * @example 3.5
-                         */
-                        bleed_size?: number;
-                        /**
-                         * @description Printer designs only. Safe-zone size (float, format unit); present only when enabled.
-                         * @example 5
-                         */
-                        safe_size?: number;
+                    "application/json": components["schemas"]["DesignFormat"] & {
                         animation?: components["schemas"]["DesignAnimation"];
-                        design?: components["schemas"]["Design"];
-                        /** @description List of all elements (& customizable properties) contained in the design format */
-                        elements?: {
-                            /**
-                             * @description Element name
-                             * @example root
-                             */
-                            name?: string;
-                            /**
-                             * @description Element type
-                             * @example container
-                             */
-                            type?: string;
-                            settings?: {
-                                /**
-                                 * @description Whether the element is mandatory
-                                 * @example false
-                                 */
-                                is_mandatory?: boolean;
-                            };
-                            attributes?: {
-                                /**
-                                 * @description Attribute identifier
-                                 * @example background_color
-                                 */
-                                id?: string;
-                                /**
-                                 * @description Help text for the attribute
-                                 * @example 6 or 8 digits hexadecimal background color (i.e. #F3F3F3) of the banner
-                                 */
-                                help?: string;
-                                /**
-                                 * @description Value of the attribute for this format
-                                 * @example #FFFFFF
-                                 */
-                                value?: string;
-                            }[];
-                            layout?: {
-                                /** @example 0 */
-                                x?: number;
-                                /** @example 0 */
-                                y?: number;
-                                /** @example 3333 */
-                                width?: number;
-                                /** @example 666 */
-                                height?: number;
-                            };
-                        }[];
+                        design?: components["schemas"]["DesignFormatSummary"];
                         /**
-                         * @description Variables used within the text layers of the design format (if any).
-                         *     Keys represent variable names (without braces), and values
-                         *     represent the placeholder format in the design (e.g. "{name}").
-                         * @example {
-                         *       "name": "{name}",
-                         *       "title": "{title}"
-                         *     }
+                         * @description The design's elements as they stand **in this format**: attribute values
+                         *     and `layout` are the requested format's, not maps keyed by format name
+                         *     (see `DesignFormatElement`). Group layers are included, flattened to this
+                         *     format.
                          */
-                        variables?: {
-                            [key: string]: string;
-                        };
+                        elements?: components["schemas"]["DesignFormatElement"][];
+                        variables?: components["schemas"]["DesignVariables"];
+                        version?: components["schemas"]["ApiVersion"];
                     };
                 };
             };
@@ -2242,6 +2385,9 @@ export interface operations {
             /** @description Existing dynamic image retrieved */
             200: {
                 headers: {
+                    "X-RateLimit-Limit": components["headers"]["XRateLimitLimit"];
+                    "X-RateLimit-Remaining": components["headers"]["XRateLimitRemaining"];
+                    "X-RateLimit-Reset": components["headers"]["XRateLimitReset"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -2251,6 +2397,9 @@ export interface operations {
             /** @description Dynamic image successfully created */
             201: {
                 headers: {
+                    "X-RateLimit-Limit": components["headers"]["XRateLimitLimit"];
+                    "X-RateLimit-Remaining": components["headers"]["XRateLimitRemaining"];
+                    "X-RateLimit-Reset": components["headers"]["XRateLimitReset"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -2295,6 +2444,9 @@ export interface operations {
             /** @description The file's metadata and download URLs. */
             200: {
                 headers: {
+                    "X-RateLimit-Limit": components["headers"]["XRateLimitLimit"];
+                    "X-RateLimit-Remaining": components["headers"]["XRateLimitRemaining"];
+                    "X-RateLimit-Reset": components["headers"]["XRateLimitReset"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -2330,6 +2482,28 @@ export interface operations {
         };
         requestBody: {
             content: {
+                /**
+                 * @example {
+                 *       "template_format_name": "facebook-post",
+                 *       "image_file_type": "png",
+                 *       "elements": {
+                 *         "root": {
+                 *           "background_color": "#F3F3F3"
+                 *         },
+                 *         "title": {
+                 *           "payload": "Summer sale — 40% off",
+                 *           "color": "#111111"
+                 *         },
+                 *         "product-image": {
+                 *           "image_url": "https://example.com/product.jpg"
+                 *         },
+                 *         "cta": {
+                 *           "payload": "Shop now",
+                 *           "background_color": "#5B4CF5"
+                 *         }
+                 *       }
+                 *     }
+                 */
                 "application/json": {
                     /** @description Element overrides keyed by layer name. On this synchronous endpoint every value MUST be an object — a bare string value answers `400 invalid_payload` (the asynchronous endpoint is lenient). */
                     elements?: components["schemas"]["Elements"];
@@ -2363,6 +2537,25 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "id": "64238d01-d402-474b-8c2d-fbc957e9d290",
+                     *       "version": 1,
+                     *       "sharing_id": "5fcec999-2bfb-4dd7-ba38-2d9e16c49149",
+                     *       "file": {
+                     *         "type": "png",
+                     *         "url": "https://production-banners.s3.eu-west-1.amazonaws.com/demo/996739f4-b563-428a-a6e8-ec3cb8bd03d4.png",
+                     *         "cdn_url": "https://cdn.abyssale.com/demo/996739f4-b563-428a-a6e8-ec3cb8bd03d4.png",
+                     *         "filename": "996739f4-b563-428a-a6e8-ec3cb8bd03d4.png"
+                     *       },
+                     *       "format": {
+                     *         "id": "facebook-post",
+                     *         "unit": "px",
+                     *         "width": 1200,
+                     *         "height": 1200
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["Banner"];
                 };
             };
@@ -2388,6 +2581,28 @@ export interface operations {
         };
         requestBody: {
             content: {
+                /**
+                 * @example {
+                 *       "template_format_names": [
+                 *         "facebook-feed",
+                 *         "instagram-post"
+                 *       ],
+                 *       "image_file_type": "png",
+                 *       "callback_url": "https://example.com/webhooks/abyssale",
+                 *       "elements": {
+                 *         "root": {
+                 *           "background_color": "#F3F3F3"
+                 *         },
+                 *         "title": {
+                 *           "payload": "Summer sale — 40% off",
+                 *           "color": "#111111"
+                 *         },
+                 *         "product-image": {
+                 *           "image_url": "https://example.com/product.jpg"
+                 *         }
+                 *       }
+                 *     }
+                 */
                 "application/json": {
                     elements?: components["schemas"]["AsyncElements"];
                     /**
@@ -2464,12 +2679,18 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "generation_request_id": "3f2a9c18-6b1e-4f4a-9a75-2b6d0e1c8f77"
+                     *     }
+                     */
                     "application/json": {
                         /**
                          * Format: uuid
                          * @description Unique identifier (UUID) of the batch generation
                          */
                         generation_request_id?: string;
+                        version?: components["schemas"]["ApiVersion"];
                     };
                 };
             };
@@ -2492,6 +2713,9 @@ export interface operations {
             /** @description The key is valid and the plan includes API access. */
             200: {
                 headers: {
+                    "X-RateLimit-Limit": components["headers"]["XRateLimitLimit"];
+                    "X-RateLimit-Remaining": components["headers"]["XRateLimitRemaining"];
+                    "X-RateLimit-Reset": components["headers"]["XRateLimitReset"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -2525,6 +2749,9 @@ export interface operations {
             /** @description The fonts available to this workspace. */
             200: {
                 headers: {
+                    "X-RateLimit-Limit": components["headers"]["XRateLimitLimit"];
+                    "X-RateLimit-Remaining": components["headers"]["XRateLimitRemaining"];
+                    "X-RateLimit-Reset": components["headers"]["XRateLimitReset"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -2569,10 +2796,12 @@ export interface operations {
                 content: {
                     "application/json": {
                         /**
+                         * Format: uuid
                          * @description Unique identifier (UUID) of the asynchronous export. Keep it to be able to identify the asynchronous response.
                          * @example 64238d01-d402-474b-8c2d-fbc957e9d290
                          */
                         export_id: string;
+                        version?: components["schemas"]["ApiVersion"];
                     };
                 };
             };
@@ -2637,6 +2866,7 @@ export interface operations {
                          * @description Unique identifier (UUID) of the batch generation
                          */
                         generation_request_id?: string;
+                        version?: components["schemas"]["ApiVersion"];
                     };
                 };
             };
@@ -2662,6 +2892,9 @@ export interface operations {
             /** @description Generation finished — `is_finalized` is `true` and `banners` is populated. */
             200: {
                 headers: {
+                    "X-RateLimit-Limit": components["headers"]["XRateLimitLimit"];
+                    "X-RateLimit-Remaining": components["headers"]["XRateLimitRemaining"];
+                    "X-RateLimit-Reset": components["headers"]["XRateLimitReset"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -2671,6 +2904,9 @@ export interface operations {
             /** @description Generation still in progress */
             202: {
                 headers: {
+                    "X-RateLimit-Limit": components["headers"]["XRateLimitLimit"];
+                    "X-RateLimit-Remaining": components["headers"]["XRateLimitRemaining"];
+                    "X-RateLimit-Reset": components["headers"]["XRateLimitReset"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -2712,6 +2948,9 @@ export interface operations {
             /** @description The workspace's projects. */
             200: {
                 headers: {
+                    "X-RateLimit-Limit": components["headers"]["XRateLimitLimit"];
+                    "X-RateLimit-Remaining": components["headers"]["XRateLimitRemaining"];
+                    "X-RateLimit-Reset": components["headers"]["XRateLimitReset"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -2745,10 +2984,15 @@ export interface operations {
             /** @description Project created successfully */
             200: {
                 headers: {
+                    "X-RateLimit-Limit": components["headers"]["XRateLimitLimit"];
+                    "X-RateLimit-Remaining": components["headers"]["XRateLimitRemaining"];
+                    "X-RateLimit-Reset": components["headers"]["XRateLimitReset"];
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ProjectSummary"];
+                    "application/json": components["schemas"]["ProjectSummary"] & {
+                        version?: components["schemas"]["ApiVersion"];
+                    };
                 };
             };
             /** @description Bad Request — `name` is missing or outside 2–100 characters. */
@@ -2775,7 +3019,7 @@ export interface operations {
                  */
                 category_id?: string;
                 /** @description Filter workspace templates by one of these types: static, animated, printer, printer_multipage. An unknown value is **ignored** and the full unfiltered list is returned — this never answers 400 (long-standing behavior existing integrations rely on). */
-                type?: "static" | "animated" | "printer" | "printer_multipage";
+                type?: "static" | "printer" | "animated" | "printer_multipage";
             };
             header?: never;
             path?: never;
@@ -2786,6 +3030,9 @@ export interface operations {
             /** @description The workspace's shared templates. */
             200: {
                 headers: {
+                    "X-RateLimit-Limit": components["headers"]["XRateLimitLimit"];
+                    "X-RateLimit-Remaining": components["headers"]["XRateLimitRemaining"];
+                    "X-RateLimit-Reset": components["headers"]["XRateLimitReset"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -2810,6 +3057,9 @@ export interface operations {
             /** @description The categories grouping workspace templates. */
             200: {
                 headers: {
+                    "X-RateLimit-Limit": components["headers"]["XRateLimitLimit"];
+                    "X-RateLimit-Remaining": components["headers"]["XRateLimitRemaining"];
+                    "X-RateLimit-Reset": components["headers"]["XRateLimitReset"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -2855,6 +3105,9 @@ export interface operations {
             /** @description Duplication request accepted and processing */
             200: {
                 headers: {
+                    "X-RateLimit-Limit": components["headers"]["XRateLimitLimit"];
+                    "X-RateLimit-Remaining": components["headers"]["XRateLimitRemaining"];
+                    "X-RateLimit-Reset": components["headers"]["XRateLimitReset"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -2862,7 +3115,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
-            /** @description Workspace template or project not found (`workspace_template_not_found`). */
+            /** @description Workspace template not found (`workspace_template_not_found`), or the `project_id` does not exist in this workspace (`project_not_found`). */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -2893,6 +3146,9 @@ export interface operations {
             /** @description Duplication request status */
             200: {
                 headers: {
+                    "X-RateLimit-Limit": components["headers"]["XRateLimitLimit"];
+                    "X-RateLimit-Remaining": components["headers"]["XRateLimitRemaining"];
+                    "X-RateLimit-Reset": components["headers"]["XRateLimitReset"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -2902,6 +3158,15 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             /** @description Duplication request not found (`duplication_request_not_found`). */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The duplication request has expired (`duplication_request_gone`). Statuses are kept for 7 days. */
+            410: {
                 headers: {
                     [name: string]: unknown;
                 };
