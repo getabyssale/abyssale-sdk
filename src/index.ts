@@ -25,6 +25,8 @@ export type DuplicationRequestStatus =
 export type DuplicatedDesign = components["schemas"]["DuplicatedDesign"];
 export type Elements = components["schemas"]["Elements"];
 export type AsyncElements = components["schemas"]["AsyncElements"];
+/** `text_to_image_properties` on an image element — `generateMultiFormatMedia` only. */
+export type TextToImageProperties = components["schemas"]["TextToImageProperties"];
 export type Pages = components["schemas"]["Pages"];
 
 // ── Body type helpers (extracted from operations for cleaner method signatures) ─
@@ -85,7 +87,9 @@ const _client = createClient<paths>({
 });
 
 _client.use(timeoutMiddleware(timeoutMs));
-_client.use(retryMiddleware(maxRetries));
+// Registered after the timeout middleware so its `onResponse` runs first (openapi-fetch walks
+// response middleware in reverse). It takes `timeoutMs` because it re-arms the timeout per attempt.
+_client.use(retryMiddleware(maxRetries, timeoutMs));
 
 // ── SDK singleton ─────────────────────────────────────────────────────────────
 // Each method returns { data, error, response } — never throws on HTTP errors.

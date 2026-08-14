@@ -10,7 +10,7 @@ Types are auto-generated from the public OpenAPI spec at `https://api-reference.
 src/generated.ts       ← auto-generated types (openapi-typescript) — never edit manually
 src/middleware.ts      ← retry (idempotent 5xx + Retry-After 429 only) + timeout middleware
 src/index.ts           ← singleton export: 18 named methods + 2 polling helpers + public type re-exports
-dist/                  ← compiled output, committed and kept current — built by tsup
+dist/                  ← compiled output — built by tsup, gitignored, produced at publish time
 scripts/fetch-spec.mjs ← fetches the spec and strips the Alpha design-import surface
 ```
 

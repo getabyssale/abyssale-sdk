@@ -9,7 +9,7 @@ All notable changes to `@abyssale/sdk` are documented here.
   `/ready` health check is exempt from authentication and answers `200` even for a revoked key.
 - `listWorkspaceTemplates(query?)` — `GET /workspace-templates`, with optional `category_id` / `type` filters
 - `listWorkspaceTemplateCategories()` — `GET /workspace-template-categories`
-- Type re-exports: `WorkspaceTemplate`, `WorkspaceTemplateCategory`, `DesignAnimation`, `AsyncElements`, `ErrorResponse`
+- Type re-exports: `WorkspaceTemplate`, `WorkspaceTemplateCategory`, `DesignAnimation`, `AsyncElements`, `TextToImageProperties`, `ErrorResponse`
 - Regenerated types from the current OpenAPI spec:
   - `Design` now carries `project_id` / `project_name` (the old `category_id` / `category_name` are deprecated aliases)
   - Multipage print designs: `GET /designs/{designId}` returns `pages[]` + `elements_per_page` instead of `formats` / `elements` / `variables` / `dynamic_image_url`; the per-format read answers `404 format_not_found` for them
@@ -42,6 +42,12 @@ All notable changes to `@abyssale/sdk` are documented here.
   "not enough credits" and for plan gates, which never succeed on retry — the SDK just spent ~7s
   backing off before failing anyway. A `429` is retried only when the response carries
   `Retry-After`, and then for exactly that long.
+- **A retry no longer inherits the first attempt's timeout.** `AbortSignal.timeout` starts counting
+  when it is created, and retries reused the signal built for the original request — so one
+  `ABYSSALE_TIMEOUT_MS` window covered every attempt *plus* the backoff sleeps between them. Three
+  retries behind a 27s `Retry-After` aborted mid-retry despite the default 30s timeout. Each attempt
+  now gets its own window, measured from its own dispatch, and a caller who aborts during a backoff
+  is no longer charged another attempt. `retryMiddleware` takes `timeoutMs` as a second argument.
 - **A generation where every format failed is no longer reported as a success.**
   `waitForGenerationRequest` resolved on `is_finalized: true` alone, so a request that produced no
   output at all resolved with `banners: []` and the reasons sitting unread in `errors[]` — callers
