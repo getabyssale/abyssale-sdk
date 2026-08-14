@@ -267,6 +267,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/auth": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Verify an API key
+         * @description Check that an API key is usable, and find out which workspace it belongs to.
+         *
+         *     This is the endpoint to call when you want to confirm a key works — it runs the whole
+         *     authentication path and answers `200` only if **all** of the following hold:
+         *
+         *     - the key exists,
+         *     - it is still active (a revoked key answers `401`),
+         *     - the workspace's plan includes API access (`401 api_access_denied` otherwise).
+         *
+         *     Every failure is a **`401`**, whether the key is unknown, revoked, or on a plan without
+         *     API access. This endpoint does not answer `403`.
+         *
+         *     The response carries the workspace name, so a caller holding several keys can tell which
+         *     one it has. Integration platforms use it to label a connection.
+         *
+         *     > **Do not use `GET /ready` to test a key.** It is a service health check and is exempt
+         *     > from authentication, so it answers `200` regardless of the key you send — including one
+         *     > that has been revoked.
+         *
+         *     Takes no request body. It is a `POST` for historical reasons; live integrations depend on
+         *     the current shape, so it will not be changed.
+         */
+        post: operations["verifyApiKey"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/fonts": {
         parameters: {
             query?: never;
@@ -2437,6 +2477,36 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
             429: components["responses"]["GenerationRateLimited"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    verifyApiKey: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The key is valid and the plan includes API access. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /**
+                         * @description Name of the workspace the key belongs to.
+                         * @example Acme Inc.
+                         */
+                        company?: string;
+                        version?: components["schemas"]["ApiVersion"];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            429: components["responses"]["TooManyRequests"];
             500: components["responses"]["InternalServerError"];
         };
     };
