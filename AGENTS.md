@@ -9,10 +9,17 @@ Types are auto-generated from the public OpenAPI spec at `https://api-reference.
 ```
 src/generated.ts       ← auto-generated types (openapi-typescript) — never edit manually
 src/middleware.ts      ← retry (idempotent 5xx + Retry-After 429 only) + timeout middleware
-src/index.ts           ← singleton export with all 19 named methods + public type re-exports
+src/index.ts           ← singleton export: 18 named methods + 2 polling helpers + public type re-exports
 dist/                  ← compiled output, committed and kept current — built by tsup
 scripts/fetch-spec.mjs ← fetches the spec and strips the Alpha design-import surface
 ```
+
+## Where the docs live
+
+The **canonical SDK reference is the docs site**: `https://developers.abyssale.com/sdks/nodejs`
+(source: `abyssale-developers-doc/docs/sdks/nodejs.md`). `README.md` is deliberately a short
+pointer — do not re-expand the method list, config table or retry rules into it, or the two copies
+will drift. Add new facts to the docs page; keep `llms.txt` in sync since it is machine-facing.
 
 ## Key decisions
 

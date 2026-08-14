@@ -91,6 +91,21 @@ _client.use(retryMiddleware(maxRetries));
 // Each method returns { data, error, response } — never throws on HTTP errors.
 // Check `error` to handle API failures; `data` is populated on success.
 const abyssale = {
+  // ── Authentication ───────────────────────────────────────────────────────
+
+  /**
+   * Verify the API key and return the workspace it belongs to.
+   * Takes no body. Every failure is a `401` — unknown key, revoked key, or a plan
+   * without API access (`api_access_denied`); this endpoint never answers `403`.
+   *
+   * Do not use the health check to test a key: it is exempt from authentication and
+   * answers `200` for a revoked key.
+   * @example
+   * const { data, error } = await abyssale.verifyApiKey();
+   * if (!error) console.log(data.company);
+   */
+  verifyApiKey: () => _client.POST("/auth"),
+
   // ── Designs ──────────────────────────────────────────────────────────────
 
   /**

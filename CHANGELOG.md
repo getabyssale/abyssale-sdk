@@ -5,6 +5,8 @@ All notable changes to `@abyssale/sdk` are documented here.
 ## [1.1.0] — 2026-08-10
 
 ### Added
+- `verifyApiKey()` — `POST /auth`, returns the workspace the key belongs to. Use it to test a key: the
+  `/ready` health check is exempt from authentication and answers `200` even for a revoked key.
 - `listWorkspaceTemplates(query?)` — `GET /workspace-templates`, with optional `category_id` / `type` filters
 - `listWorkspaceTemplateCategories()` — `GET /workspace-template-categories`
 - Type re-exports: `WorkspaceTemplate`, `WorkspaceTemplateCategory`, `DesignAnimation`, `AsyncElements`, `ErrorResponse`

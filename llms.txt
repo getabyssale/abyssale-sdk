@@ -11,7 +11,7 @@ images, colors, and other properties dynamically.
 ## What is this SDK?
 
 `@abyssale/sdk` is the official Node.js / TypeScript SDK for the Abyssale REST API.
-It provides a zero-config singleton with 19 typed methods covering the full API surface,
+It provides a zero-config singleton with 20 typed methods covering the full API surface,
 plus built-in polling helpers with exponential backoff. Configuration is done via the
 `ABYSSALE_API_KEY` environment variable. The SDK ships as dual ESM/CJS with full
 TypeScript types generated from the OpenAPI spec.
@@ -26,8 +26,9 @@ Set the environment variable `ABYSSALE_API_KEY` to your Abyssale API key.
 
 ## Methods
 
+- `verifyApiKey()` — Verify the API key and return the workspace it belongs to; every failure is a 401
 - `listDesigns(query?)` — List all designs in the workspace, with optional filtering by project or type
-- `getDesign(designId)` — Get full details of a design including formats, elements, and template variables
+- `getDesign(designId, options?)` — Full design spec: formats, elements, variables; `{ advanced: true }` also returns `group` layers
 - `getDesignFormat(designId, formatSpecifier)` — Get details for a specific format within a design
 - `generateImage(designId, body)` — Synchronously generate a single image; returns the file URL immediately
 - `generateMultiFormatMedia(designId, body)` — Asynchronously generate multiple formats (image, GIF, video, HTML5, PDF) in one call
@@ -41,7 +42,6 @@ Set the environment variable `ABYSSALE_API_KEY` to your Abyssale API key.
 - `createProject(body)` — Create a new project to organise designs
 - `exportBanners(body)` — Asynchronously package a set of banners into a ZIP archive for download
 - `createDynamicImageUrl(designId, body)` — Create a live image URL that renders on-the-fly from query parameters
-- `getDesign(designId, { advanced? })` — Full design spec; `advanced: true` also returns `group` layers
 - `listWorkspaceTemplates(query?)` — List organisation-level master designs, with optional filtering by category or type
 - `listWorkspaceTemplateCategories()` — List the categories that group workspace templates
 - `duplicateWorkspaceTemplate(companyTemplateId, body)` — Copy a shared workspace template into a project
@@ -61,12 +61,13 @@ Set the environment variable `ABYSSALE_API_KEY` to your Abyssale API key.
 - TypeScript-first with types generated from the OpenAPI spec — full IntelliSense
 - Dual ESM and CJS output — works in any Node.js project
 - Zero-config singleton — no constructor, no setup beyond setting an env var
-- Auto-retry with exponential backoff on 429 and 5xx errors (default: 3 retries, 30 s timeout — configurable via `ABYSSALE_MAX_RETRIES` and `ABYSSALE_TIMEOUT_MS`)
-- Built-in polling helpers (`waitForGenerationRequest`, `waitForDuplicationRequest`) with exponential backoff, jitter, and configurable timeout (default 30 min, min 1 min)
-- Returns `{ data, error }` — never throws on HTTP errors
+- Auto-retry with exponential backoff, deliberately narrow: `5xx` only on idempotent reads (a POST is never repeated, since it would bill a second generation), and `429` only when the response carries `Retry-After` (a bare 429 means out of credits or a plan gate, which retrying never fixes). Default 3 retries, 30 s timeout — configurable via `ABYSSALE_MAX_RETRIES` and `ABYSSALE_TIMEOUT_MS`
+- Built-in polling helpers (`waitForGenerationRequest`, `waitForDuplicationRequest`) with exponential backoff, jitter, and configurable timeout (default 30 min, min 1 min); they throw `AbyssalePollingError`, which carries the API error code on `.id`
+- Returns `{ data, error, response }` — never throws on HTTP errors
 
 ## Links
 
+- SDK reference (canonical): https://developers.abyssale.com/sdks/nodejs
 - API documentation: https://developers.abyssale.com/rest-api
 - Developer hub: https://developers.abyssale.com
 - npm package: https://www.npmjs.com/package/@abyssale/sdk
