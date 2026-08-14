@@ -48,7 +48,8 @@ only when the response carries `Retry-After`. The reasoning is on the
 ## Runnable examples
 
 See [`examples/`](./examples) — synchronous generation, async multi-format with polling, the same
-with a webhook receiver, multi-page PDF, dynamic image URLs, and batch ZIP export.
+with a webhook receiver, AI text-to-image and inpainting, multi-page PDF, dynamic image URLs, and
+batch ZIP export.
 
 ```bash
 ABYSSALE_API_KEY=your-key npx tsx examples/generate-image.ts
