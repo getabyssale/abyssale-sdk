@@ -1,6 +1,6 @@
 import createClient from "openapi-fetch";
 import type { paths, components, operations } from "./generated.js";
-import { retryMiddleware, timeoutMiddleware } from "./middleware.js";
+import { retryMiddleware, timeoutMiddleware, RETRYABLE_SERVER_STATUSES } from "./middleware.js";
 
 // ── Public type re-exports ────────────────────────────────────────────────────
 // Consumers can import these directly: import type { Banner } from '@abyssale/sdk'
@@ -353,6 +353,17 @@ const POLL_MIN_MAX_INTERVAL_MS = 5_000;
 const POLL_MIN_TIMEOUT_MS = 60_000;
 
 /**
+ * How many *consecutive* transient failures a poll loop absorbs before giving up.
+ *
+ * A wait can legitimately run for the full 30 minutes — the async endpoint has no completion bound,
+ * and an AI image round-trip pushes well past a plain render. Failing the whole wait on one 503 or
+ * one aborted poll would throw away everything already elapsed for a condition that the next poll,
+ * three seconds later, usually clears. The streak resets on any successful poll, so this tolerates
+ * blips without hiding an endpoint that is actually down.
+ */
+const POLL_MAX_TRANSIENT_FAILURES = 3;
+
+/**
  * Thrown when a polling helper's underlying request fails.
  *
  * The API's error body is preserved on `.response` (and its machine-readable `id` on `.id`)
@@ -399,28 +410,56 @@ function jitter(): number {
   return Math.floor(Math.random() * 500);
 }
 
+/**
+ * Whether a failed poll is worth trying again.
+ *
+ * Same classification as `retryMiddleware`, and for the same reason: a 5xx or a throttle says
+ * nothing about the generation itself, while any other 4xx is a verdict. In particular
+ * `generation_request_not_found` must fail on the first poll rather than be re-asked for 30 minutes.
+ */
+function isTransientPollFailure(response: Response | undefined): boolean {
+  // A network-level throw (`fetch` rejected, or the request was aborted) has no response at all.
+  if (!response) return true;
+  return RETRYABLE_SERVER_STATUSES.includes(response.status) || response.status === 429;
+}
+
 async function pollUntil<T>(
-  fn: () => Promise<{ data?: T | null; error?: unknown }>,
+  fn: () => Promise<{ data?: T | null; error?: unknown; response?: Response }>,
   isDone: (data: T) => boolean,
   opts: Required<PollOptions>
 ): Promise<T> {
   const deadline = Date.now() + opts.timeoutMs;
   let interval = opts.intervalMs;
+  let transientFailures = 0;
+
+  /** Fatal unless it is a blip and we have not seen too many in a row. */
+  const absorb = (cause: unknown, response?: Response): AbyssalePollingError | null => {
+    if (!isTransientPollFailure(response)) return new AbyssalePollingError(cause);
+    if (++transientFailures > POLL_MAX_TRANSIENT_FAILURES) return new AbyssalePollingError(cause);
+    return null;
+  };
+
   for (;;) {
     // A malformed or empty body makes openapi-fetch's `res.json()` THROW rather than populate
     // `error` — a raw SyntaxError would otherwise escape a helper that promises callers can
     // branch on `err.id`. Everything that comes out of a polling helper is an
     // `AbyssalePollingError` with the original on `.cause`.
-    let result: { data?: T | null; error?: unknown };
+    let result: { data?: T | null; error?: unknown; response?: Response };
+    let failure: AbyssalePollingError | null = null;
     try {
       result = await fn();
+      const { data, error } = result;
+      if (error) failure = absorb(error, result.response);
+      else if (!data) failure = new AbyssalePollingError(new Error("the API returned an empty response"));
+      else {
+        transientFailures = 0;
+        if (isDone(data)) return data;
+      }
     } catch (thrown) {
-      throw new AbyssalePollingError(thrown);
+      // No response to classify — a rejected or aborted fetch. Treated as transient.
+      failure = absorb(thrown, undefined);
     }
-    const { data, error } = result;
-    if (error) throw new AbyssalePollingError(error);
-    if (!data) throw new AbyssalePollingError(new Error("the API returned an empty response"));
-    if (isDone(data)) return data;
+    if (failure) throw failure;
     const wait = interval + jitter();
     if (Date.now() + wait > deadline)
       throw new AbyssalePollingError(
@@ -445,9 +484,17 @@ function resolveOpts(opts?: PollOptions): Required<PollOptions> {
  * Wait for an async generation request to complete.
  * Polls `getGenerationRequest` with exponential backoff until `is_finalized: true`.
  * Throws if the request errors or the timeout is exceeded.
+ *
+ * **Partial success resolves.** A finalized request can carry both `banners` and per-format
+ * `errors` — one format failing does not invalidate the others, so check `result.errors` if you
+ * need every requested format. Only a request that finalized with *no* banners at all and at
+ * least one error throws: that is a failed generation, and returning it as a success would leave
+ * callers iterating an empty `banners` array with nothing to indicate why.
+ *
  * @example
  * const result = await abyssale.waitForGenerationRequest(generationRequestId);
  * console.log(result.banners);
+ * if (result.errors?.length) console.warn('some formats failed:', result.errors);
  */
 function waitForGenerationRequest(
   generationRequestId: string,
@@ -457,7 +504,18 @@ function waitForGenerationRequest(
     () => abyssale.getGenerationRequest(generationRequestId),
     (data) => data.is_finalized === true,
     resolveOpts(options)
-  );
+  ).then((result) => {
+    if (result.banners?.length || !result.errors?.length) return result;
+    const reasons = result.errors
+      .map((e) => `${e.template_format_name ?? "unknown format"}: ${e.reason ?? "no reason given"}`)
+      .join("; ");
+    // `.response`/`.id` stay reserved for an actual API error body, which this is not — the poll
+    // itself answered 200. The finalized status object is reachable as `err.cause.cause` for
+    // callers that want to read `errors[]` programmatically rather than parse the message.
+    throw new AbyssalePollingError(
+      new Error(`the generation produced no banners — ${reasons}`, { cause: result })
+    );
+  });
 }
 
 /**

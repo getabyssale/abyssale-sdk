@@ -10,6 +10,10 @@ import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from "vite
  */
 process.env.ABYSSALE_API_KEY ??= "test-key";
 process.env.ABYSSALE_BASE_URL ??= "https://api.test.local";
+// Disable the HTTP-level retries so a `fetch` call count here means "one poll". The middleware's
+// own 5xx retrying is covered by middleware.test.ts; leaving it on would make every 503 below
+// consume four calls and conflate the two layers.
+process.env.ABYSSALE_MAX_RETRIES ??= "0";
 
 let abyssale: typeof import("../index.js").default;
 let AbyssalePollingError: typeof import("../index.js").AbyssalePollingError;
@@ -96,6 +100,67 @@ describe("waitForGenerationRequest", () => {
     const promise = abyssale.waitForGenerationRequest("empty", FAST);
     const assertion = expect(promise).rejects.toThrow(AbyssalePollingError);
     await Promise.all([vi.runAllTimersAsync(), assertion]);
+  });
+
+  it("throws when the request finalized with no banners at all", async () => {
+    fetchMock.mockImplementation(() =>
+      json({
+        is_finalized: true,
+        banners: [],
+        errors: [{ template_format_name: "instagram-post", reason: "prompt rejected by the model" }],
+      })
+    );
+
+    const promise = abyssale.waitForGenerationRequest("all-failed", FAST);
+    const assertion = expect(promise).rejects.toThrow(/instagram-post: prompt rejected by the model/);
+    await Promise.all([vi.runAllTimersAsync(), assertion]);
+  });
+
+  it("resolves on partial success — one format failing does not invalidate the others", async () => {
+    fetchMock.mockImplementation(() =>
+      json({
+        is_finalized: true,
+        banners: [{ id: "b1" }],
+        errors: [{ template_format_name: "facebook-feed", reason: "timeout" }],
+      })
+    );
+
+    const promise = abyssale.waitForGenerationRequest("partial", FAST);
+    await vi.runAllTimersAsync();
+
+    expect(await promise).toMatchObject({ banners: [{ id: "b1" }] });
+  });
+
+  it("rides out a couple of 503s instead of failing the whole wait", async () => {
+    fetchMock
+      .mockResolvedValueOnce(json({ id: "internal_error" }, 503))
+      .mockResolvedValueOnce(json({ id: "internal_error" }, 503))
+      .mockImplementation(() => json({ is_finalized: true, banners: [{ id: "b1" }] }));
+
+    const promise = abyssale.waitForGenerationRequest("flaky", FAST);
+    await vi.runAllTimersAsync();
+
+    expect(await promise).toMatchObject({ is_finalized: true });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("gives up once the transient failures stop being blips", async () => {
+    fetchMock.mockImplementation(() => json({ id: "internal_error" }, 503));
+
+    const promise = abyssale.waitForGenerationRequest("down", FAST);
+    const assertion = expect(promise).rejects.toMatchObject({ id: "internal_error" });
+    await Promise.all([vi.runAllTimersAsync(), assertion]);
+    // 3 absorbed, the 4th is fatal — well before the 60s timeout would have fired.
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  it("does not retry a 404 — a missing request will not appear later", async () => {
+    fetchMock.mockImplementation(() => json({ id: "generation_request_not_found" }, 404));
+
+    const promise = abyssale.waitForGenerationRequest("gone", FAST);
+    const assertion = expect(promise).rejects.toMatchObject({ id: "generation_request_not_found" });
+    await Promise.all([vi.runAllTimersAsync(), assertion]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("times out — the floor is 60s, not the 1ms asked for", async () => {

@@ -1,7 +1,11 @@
 import type { Middleware } from "openapi-fetch";
 
-/** 5xx: the request may or may not have been processed — only safe to repeat if it is idempotent. */
-const RETRYABLE_SERVER_STATUSES = [500, 502, 503, 504];
+/**
+ * 5xx: the request may or may not have been processed — only safe to repeat if it is idempotent.
+ * Exported so the polling loop in `index.ts` classifies a transient poll failure the same way this
+ * middleware does, instead of keeping a second list that can drift from this one.
+ */
+export const RETRYABLE_SERVER_STATUSES = [500, 502, 503, 504];
 
 /**
  * Methods that can be repeated without creating anything twice. Every POST on this API either

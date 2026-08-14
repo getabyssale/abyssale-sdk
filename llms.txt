@@ -34,7 +34,7 @@ Set the environment variable `ABYSSALE_API_KEY` to your Abyssale API key.
 - `generateMultiFormatMedia(designId, body)` — Asynchronously generate multiple formats (image, GIF, video, HTML5, PDF) in one call
 - `generateMultiPagePdf(designId, body)` — Asynchronously generate a multi-page print-ready PDF from a printer_multipage design
 - `getGenerationRequest(generationRequestId)` — Poll the status of an async generation request once
-- `waitForGenerationRequest(generationRequestId, options?)` — Poll with exponential backoff until complete; throws on timeout
+- `waitForGenerationRequest(generationRequestId, options?)` — Poll with exponential backoff until complete; throws on timeout, and when the request finalized with no banners at all (partial success resolves — check `result.errors`)
 - `waitForDuplicationRequest(duplicateRequestId, options?)` — Poll template duplication until COMPLETED or ERROR
 - `getFile(bannerId)` — Retrieve metadata and CDN download URL for a generated file
 - `listFonts()` — List all fonts available in the workspace (Google Fonts + custom uploads)
@@ -62,7 +62,7 @@ Set the environment variable `ABYSSALE_API_KEY` to your Abyssale API key.
 - Dual ESM and CJS output — works in any Node.js project
 - Zero-config singleton — no constructor, no setup beyond setting an env var
 - Auto-retry with exponential backoff, deliberately narrow: `5xx` only on idempotent reads (a POST is never repeated, since it would bill a second generation), and `429` only when the response carries `Retry-After` (a bare 429 means out of credits or a plan gate, which retrying never fixes). Default 3 retries, 30 s timeout — configurable via `ABYSSALE_MAX_RETRIES` and `ABYSSALE_TIMEOUT_MS`
-- Built-in polling helpers (`waitForGenerationRequest`, `waitForDuplicationRequest`) with exponential backoff, jitter, and configurable timeout (default 30 min, min 1 min); they throw `AbyssalePollingError`, which carries the API error code on `.id`
+- Built-in polling helpers (`waitForGenerationRequest`, `waitForDuplicationRequest`) with exponential backoff, jitter, and configurable timeout (default 30 min, min 1 min); they throw `AbyssalePollingError`, which carries the API error code on `.id`. A long wait survives blips: up to 3 consecutive transient poll failures (`5xx`, bare `429`, network error) are absorbed, while a `404` fails immediately
 - Returns `{ data, error, response }` — never throws on HTTP errors
 
 ## Links

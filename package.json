@@ -26,7 +26,8 @@
     "dev": "tsup --watch",
     "build": "tsup",
     "test": "vitest run",
-    "prepublishOnly": "npm run generate && npm run build && npm test"
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc -p examples/tsconfig.json",
+    "prepublishOnly": "npm run generate && npm run typecheck && npm run build && npm test"
   },
   "dependencies": {
     "openapi-fetch": "^0.13"

@@ -25,6 +25,12 @@ All notable changes to `@abyssale/sdk` are documented here.
   Without it the response keeps its default shape, where no `group` element appears.
   `getDesignFormat` needs no flag — the per-format read is always the advanced view.
 - `AbyssalePollingError` — thrown by the polling helpers when the underlying request fails. Carries the parsed API error body on `.response`, its machine-readable code on `.id`, and the raw value on `.cause`, so callers can branch on `id` instead of parsing a message string.
+- `examples/text-to-image-inpainting.ts` — AI image generation and inpainting on
+  `generateMultiFormatMedia`. Async-only: the synchronous `generateImage` answers
+  `400 invalid_payload` for `text_to_image`.
+- `npm run typecheck` — `tsc --noEmit` over `src`, plus a pass over `examples/` resolving
+  `@abyssale/sdk` to `src/index.ts`. The examples were previously never compiled by any script, so
+  they could silently rot against a regenerated `src/generated.ts`. Runs in `prepublishOnly`.
 - Types track API version `v2026-08-10`: responses now document the top-level `version` field (`ApiVersion`); `DesignImportProblem.code` is optional (informational export warnings carry only `message`); `Banner.version` is documented as the file's integer counter, not the API version.
 
 ### Fixed
@@ -36,6 +42,21 @@ All notable changes to `@abyssale/sdk` are documented here.
   "not enough credits" and for plan gates, which never succeed on retry — the SDK just spent ~7s
   backing off before failing anyway. A `429` is retried only when the response carries
   `Retry-After`, and then for exactly that long.
+- **A generation where every format failed is no longer reported as a success.**
+  `waitForGenerationRequest` resolved on `is_finalized: true` alone, so a request that produced no
+  output at all resolved with `banners: []` and the reasons sitting unread in `errors[]` — callers
+  iterating `result.banners` printed nothing and saw no failure. It now throws
+  `AbyssalePollingError` when a finalized request has no banners *and* at least one error, with the
+  failed `template_format_name`/`reason` pairs in the message and the status object on
+  `err.cause.cause`. Partial success is unchanged: one format failing still resolves, so check
+  `result.errors` when you need every requested format. This matters more now that image elements
+  accept `text_to_image` — a model can reject a prompt where a plain render would not have failed.
+- **A single transient failure no longer destroys a long poll.** The loop threw on the first error
+  of any kind, so one `503` or one aborted poll ended a wait that may already have run for 25
+  minutes. Up to 3 *consecutive* transient failures (`5xx`, a bare `429`, or a network-level throw)
+  are now absorbed and retried on the normal backoff, and the streak resets on any successful poll.
+  Anything else — notably `generation_request_not_found` — still fails on the first poll. The
+  overall `timeoutMs` deadline is unchanged.
 - **Polling helpers always raise `AbyssalePollingError`.** An empty or malformed response body
   makes the underlying fetch layer throw a raw `SyntaxError`, which escaped the helper and broke
   the documented "branch on `err.id`" contract. Timeout and empty-response failures were also

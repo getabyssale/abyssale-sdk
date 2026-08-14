@@ -77,6 +77,11 @@ for (const [label, request] of [
     for (const banner of result.banners) {
       console.log(` - ${banner.format?.id}: ${banner.file.cdn_url}`);
     }
+    // Partial success resolves — a format the model failed on shows up here rather than throwing.
+    // Only a request that produced no banners at all raises AbyssalePollingError.
+    for (const failure of result.errors ?? []) {
+      console.warn(` ! ${failure.template_format_name} failed: ${failure.reason}`);
+    }
   } catch (err) {
     console.error(`${label} polling failed:`, err);
     process.exit(1);

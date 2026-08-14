@@ -1,9 +1,19 @@
 {
+  // Typechecked by `npm run typecheck` from the repo root. The examples import the package by its
+  // published name, so `paths` points that at the source — otherwise they only compile against a
+  // `dist/` that may be stale, or not at all before the first build.
   "compilerOptions": {
+    "noEmit": true,
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "bundler",
     "strict": true,
-    "skipLibCheck": true
-  }
+    "skipLibCheck": true,
+    "types": ["node"],
+    "baseUrl": ".",
+    "paths": {
+      "@abyssale/sdk": ["../src/index.ts"]
+    }
+  },
+  "include": ["*.ts"]
 }
