@@ -19,7 +19,7 @@
   ],
   "sideEffects": false,
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=20.3.0"
   },
   "scripts": {
     "generate": "node scripts/fetch-spec.mjs spec.stripped.json && openapi-typescript spec.stripped.json -o src/generated.ts && node -e \"require('node:fs').unlinkSync('spec.stripped.json')\"",

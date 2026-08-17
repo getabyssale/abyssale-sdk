@@ -62,7 +62,7 @@ Set the environment variable `ABYSSALE_API_KEY` to your Abyssale API key.
 - Dual ESM and CJS output — works in any Node.js project
 - Zero-config singleton — no constructor, no setup beyond setting an env var
 - Auto-retry with exponential backoff, deliberately narrow: `5xx` only on idempotent reads (a POST is never repeated, since it would bill a second generation), and `429` only when the response carries `Retry-After` (a bare 429 means out of credits or a plan gate, which retrying never fixes). Default 3 retries, 30 s timeout — configurable via `ABYSSALE_MAX_RETRIES` and `ABYSSALE_TIMEOUT_MS`
-- Built-in polling helpers (`waitForGenerationRequest`, `waitForDuplicationRequest`) with exponential backoff, jitter, and configurable timeout (default 30 min, min 1 min); they throw `AbyssalePollingError`, which carries the API error code on `.id`. A long wait survives blips: up to 3 consecutive transient poll failures (`5xx`, bare `429`, network error) are absorbed, while a `404` fails immediately
+- Built-in polling helpers (`waitForGenerationRequest`, `waitForDuplicationRequest`) with exponential backoff, jitter, and configurable timeout (default 30 min, min 1 min); they throw `AbyssalePollingError`, which carries the API error code on `.id`. A long wait survives blips: up to 3 consecutive transient poll failures are absorbed, using the same rule as the retry middleware — a `5xx`, a network error, or a `429` carrying `Retry-After` (which the poll then waits for instead of its own interval). A `404` and a **bare `429`** fail immediately
 - Returns `{ data, error, response }` — never throws on HTTP errors
 
 ## Links

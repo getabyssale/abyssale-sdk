@@ -59,10 +59,13 @@ All notable changes to `@abyssale/sdk` are documented here.
   accept `text_to_image` — a model can reject a prompt where a plain render would not have failed.
 - **A single transient failure no longer destroys a long poll.** The loop threw on the first error
   of any kind, so one `503` or one aborted poll ended a wait that may already have run for 25
-  minutes. Up to 3 *consecutive* transient failures (`5xx`, a bare `429`, or a network-level throw)
-  are now absorbed and retried on the normal backoff, and the streak resets on any successful poll.
-  Anything else — notably `generation_request_not_found` — still fails on the first poll. The
-  overall `timeoutMs` deadline is unchanged.
+  minutes. Up to 3 *consecutive* transient failures are now absorbed and retried on the normal
+  backoff, and the streak resets on any successful poll. A failure counts as transient on exactly
+  the same rule the retry middleware applies — a `5xx`, a network-level throw, or a `429` that
+  carries `Retry-After` (and then the poll waits for that long instead of its own interval).
+  Anything else fails on the first poll: `404 generation_request_not_found`, and a **bare `429`**,
+  which on this API means out of credits or a plan gate and never improves by waiting. The overall
+  `timeoutMs` deadline is unchanged.
 - **Polling helpers always raise `AbyssalePollingError`.** An empty or malformed response body
   makes the underlying fetch layer throw a raw `SyntaxError`, which escaped the helper and broke
   the documented "branch on `err.id`" contract. Timeout and empty-response failures were also

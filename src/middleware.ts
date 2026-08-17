@@ -16,16 +16,23 @@ export const RETRYABLE_SERVER_STATUSES = [500, 502, 503, 504];
 const IDEMPOTENT_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
 /**
- * The caller's own `AbortSignal`, keyed by the request `timeoutMiddleware` produced from it.
+ * What a retry needs that it cannot recover from the request it is handed in `onResponse`.
  *
- * A retry needs to re-arm the timeout — `AbortSignal.timeout` starts counting at creation, so
- * reusing the first attempt's signal makes one window cover every attempt plus the backoff sleeps
- * between them. But it must still honour a caller who aborts. Once the two are composed with
- * `AbortSignal.any` they cannot be taken apart again, so the caller's half is stashed here before
- * composing. Keyed on the `Request` instance (which openapi-fetch passes unchanged from
- * `onRequest` to `onResponse`) and weakly held, so nothing needs cleaning up.
+ * Keyed on the `Request` instance openapi-fetch passes unchanged from `onRequest` to `onResponse`,
+ * and weakly held, so nothing needs cleaning up. Two entries, both of which have to be captured
+ * *before* the request is dispatched:
+ *
+ * - `callerSignal` — a retry re-arms the timeout, because `AbortSignal.timeout` starts counting at
+ *   creation and reusing the first attempt's signal would make one window cover every attempt plus
+ *   the backoff sleeps between them. But it must still honour a caller who aborts, and once the two
+ *   are composed with `AbortSignal.any` they cannot be taken apart again — hence the stash.
+ * - `replayable` — a clone taken while the body is still readable. By the time `onResponse` runs,
+ *   `fetch` has consumed the request stream and `request.clone()` throws `TypeError: unusable`, so
+ *   every retried POST used to reject instead of returning its `{data, error}`. A clone is itself
+ *   single-use, so this one is never dispatched: each attempt clones it again.
  */
-const callerSignals = new WeakMap<Request, AbortSignal>();
+type RequestState = { callerSignal?: AbortSignal; replayable: Request };
+const requestState = new WeakMap<Request, RequestState>();
 
 /** Compose a fresh `timeoutMs` window with the caller's signal, if any. */
 function withTimeoutSignal(request: Request, timeoutMs: number, callerSignal?: AbortSignal): Request {
@@ -93,9 +100,17 @@ export function retryMiddleware(maxRetries: number, timeoutMs: number): Middlewa
       if (RETRYABLE_SERVER_STATUSES.includes(response.status) && !IDEMPOTENT_METHODS.has(request.method.toUpperCase()))
         return;
 
+      // Normally stashed by `timeoutMiddleware`, which `createClient` always registers alongside
+      // this one. Absent it, a bodyless request is still safe to replay from `request` itself —
+      // there is no consumed stream to clone. A request WITH a body is not, so it is handed back
+      // untouched rather than throwing `TypeError: unusable` at the caller.
+      const state = requestState.get(request);
+      const replayable = state?.replayable ?? (request.body === null ? request : null);
+      if (!replayable) return;
+
       let after = retryAfterMs(response);
 
-      const callerSignal = callerSignals.get(request);
+      const callerSignal = state?.callerSignal;
 
       for (let attempt = 1; attempt <= maxRetries; attempt++) {
         // Honour `Retry-After` when the server sent one, else exponential backoff with jitter:
@@ -109,7 +124,10 @@ export function retryMiddleware(maxRetries: number, timeoutMs: number): Middlewa
         // this middleware. That means the timeout has to be re-applied by hand — every attempt gets
         // its own `timeoutMs`, measured from its own dispatch, rather than inheriting a window that
         // opened before the first attempt and the backoff sleeps since.
-        const retried = await fetch(withTimeoutSignal(request.clone(), timeoutMs, callerSignal));
+        //
+        // Cloned off `replayable` rather than off `request`, whose body `fetch` already consumed,
+        // and cloned again on every pass because a clone is single-use too.
+        const retried = await fetch(withTimeoutSignal(replayable.clone(), timeoutMs, callerSignal));
         // Same predicate as the entry check — a success, a verdict, or a 429 that stopped saying
         // when to come back all end the loop and are handed back as-is.
         if (!isRetryableResponse(retried)) return retried;
@@ -135,7 +153,10 @@ export function timeoutMiddleware(timeoutMs: number): Middleware {
     onRequest({ request }) {
       const callerSignal = request.signal ?? undefined;
       const withTimeout = withTimeoutSignal(request, timeoutMs, callerSignal);
-      if (callerSignal) callerSignals.set(withTimeout, callerSignal);
+      // Clone here, while the body is still readable — see {@link requestState}. This runs on every
+      // request, not just the retryable ones, because whether a retry is needed is only known after
+      // the response arrives, by which point the body is gone.
+      requestState.set(withTimeout, { callerSignal, replayable: withTimeout.clone() });
       return withTimeout;
     },
   };

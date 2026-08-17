@@ -156,6 +156,86 @@ describe("retryMiddleware", () => {
     expect(result?.status).toBe(200);
   });
 
+  it("replays a request that carries a body, with the body intact", async () => {
+    // The bug this pins: `request.clone()` used to be called in `onResponse`, by which point
+    // `fetch` had consumed the request stream — so `clone()` threw `TypeError: unusable` and every
+    // throttled POST *rejected* instead of returning its `{data, error}`. Bodyless requests were
+    // fine, and every test in this file used to build one, which is how it shipped.
+    const bodies: string[] = [];
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      bodies.push(await (input as Request).text());
+      return new Response(null, { status: 200 });
+    });
+
+    const payload = JSON.stringify({ name: "a project" });
+    const middleware = retryMiddleware(3, 30_000);
+    const request = timeoutMiddleware(30_000).onRequest!({
+      request: new Request("https://example.com", { method: "POST", body: payload }),
+      options: {},
+      schemaPath: "",
+      params: {},
+    } as Parameters<NonNullable<ReturnType<typeof timeoutMiddleware>["onRequest"]>>[0]) as Request;
+    // The dispatch openapi-fetch would have done. `.text()`, not `.clone().text()`: a real `fetch`
+    // CONSUMES the stream, and that is precisely what leaves nothing for a later `clone()`.
+    await request.text();
+
+    const promise = middleware.onResponse!({
+      response: new Response(null, { status: 429, headers: { "retry-after": "1" } }),
+      request,
+      options: {},
+    } as Parameters<NonNullable<typeof middleware.onResponse>>[0]);
+    await vi.runAllTimersAsync();
+
+    expect((await promise)?.status).toBe(200);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(bodies).toEqual([payload]);
+  });
+
+  it("replays a bodied request more than once — a clone is single-use too", async () => {
+    // Clone-per-attempt, not clone-once: reusing one clone across attempts fails on the second.
+    const bodies: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      bodies.push(await (input as Request).text());
+      return new Response(null, { status: 429, headers: { "retry-after": "1" } });
+    });
+
+    const payload = JSON.stringify({ name: "a project" });
+    const middleware = retryMiddleware(3, 30_000);
+    const request = timeoutMiddleware(30_000).onRequest!({
+      request: new Request("https://example.com", { method: "POST", body: payload }),
+      options: {},
+      schemaPath: "",
+      params: {},
+    } as Parameters<NonNullable<ReturnType<typeof timeoutMiddleware>["onRequest"]>>[0]) as Request;
+    await request.text(); // the first attempt, which consumes the stream
+
+    const promise = middleware.onResponse!({
+      response: new Response(null, { status: 429, headers: { "retry-after": "1" } }),
+      request,
+      options: {},
+    } as Parameters<NonNullable<typeof middleware.onResponse>>[0]);
+    await vi.runAllTimersAsync();
+
+    expect((await promise)?.status).toBe(429);
+    expect(bodies).toEqual([payload, payload, payload]);
+  });
+
+  it("returns undefined with maxRetries = 0 rather than swallowing the response", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const middleware = retryMiddleware(0, 30_000);
+
+    const result = await middleware.onResponse!({
+      response: new Response(null, { status: 500 }),
+      request: new Request("https://example.com"),
+      options: {},
+    } as Parameters<NonNullable<typeof middleware.onResponse>>[0]);
+
+    // `undefined` is openapi-fetch's "pass the original response through" — the caller still sees
+    // the 500, it is simply never re-attempted.
+    expect(result).toBeUndefined();
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
   it("stops retrying when the caller aborted during the backoff", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, { status: 500 }));
     const controller = new AbortController();

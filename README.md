@@ -12,7 +12,8 @@ programmatic creative asset generation at scale.
 npm install @abyssale/sdk
 ```
 
-**Requires Node.js ≥ 20.**
+**Requires Node.js ≥ 20.3** — the retry middleware composes abort signals with `AbortSignal.any`,
+which landed in 20.3.0.
 
 ## Quick start
 
