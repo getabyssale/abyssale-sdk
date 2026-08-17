@@ -61,12 +61,19 @@ export interface paths {
          *
          *     **Multipage print designs (`printer_multipage`) return a different shape.** A multipage
          *     design has no formats — each page is one format row — so the response carries `pages` and
-         *     `elements_per_page` **instead of** `formats`, `elements`, `variables` and
-         *     `dynamic_image_url`. A client coded against `formats[]` will not work on a multipage
-         *     design. `pages[]` items carry `id` (`page_1 … page_N`), `width`, `height`, `unit`,
-         *     `preview_url` and the read-only `dpi`/`bleed_size`/`safe_size` print settings;
-         *     `elements_per_page` is an **object keyed by page id** (not an array), each value being
-         *     that page's element list.
+         *     `elements_per_page` **instead of** `formats`, `elements` and `variables`. A client coded
+         *     against `formats[]` will not work on a multipage design, and because a dynamic image is
+         *     minted per format, a multipage design has no `dynamic_image_url` anywhere in the response
+         *     (it is a `static`-only feature in any case).
+         *
+         *     `pages[]` items are `DesignPage` objects, not formats: `id` (`page_1 … page_N`), `width`,
+         *     `height`, `unit` and `preview_url` — no format `uid`. `elements_per_page` is an **object
+         *     keyed by page id** (not an array), each value being that page's element list.
+         *
+         *     **The print settings are returned once, at the root** — `dpi`, `bleed_size` and
+         *     `safe_size` describe the document, not a page, because a multipage design has a single
+         *     print setup. That is the same reason the import declares them at the top level. A page
+         *     does not repeat them.
          *
          *     **Group layers require `?i=advanced`.** By default this endpoint returns its original
          *     released shape, in which no group layer appears at all — its children are listed
@@ -196,6 +203,13 @@ export interface paths {
          *     (text, images, colors) as element overrides in the request body and receive
          *     the generated file URL immediately in the response.
          *
+         *     **`static` designs only.** An `animated`, `printer` or `printer_multipage` design answers
+         *     `400` with `id: template_not_static` — use
+         *     [asynchronous generation](#tag/Asset-Generation/operation/generateMultiFormatMedia)
+         *     instead. This is a property of the endpoint, not of your plan: a video or a print PDF
+         *     cannot be produced inside a synchronous request, so there is no combination of parameters
+         *     that makes this work.
+         *
          *     Best for: real-time image generation, single-asset workflows, or when you need
          *     the result inline without polling. The rendering budget is hard-capped at **10
          *     seconds**: the call returns the finished file within that window or fails with
@@ -285,7 +299,13 @@ export interface paths {
          *
          *     - the key exists,
          *     - it is still active (a revoked key answers `401`),
-         *     - the workspace's plan includes API access (`401 api_access_denied` otherwise).
+         *     - and, **for a workspace key**, the plan includes API access (`401 api_access_denied`
+         *       otherwise).
+         *
+         *     The plan check is skipped for a **user-scoped** key, which therefore answers `200` here
+         *     whatever the plan. That is not a loophole: a user key is confined to the plugin surface,
+         *     so a `200` from this endpoint means "this key is live", not "this key can generate". If
+         *     you need to know whether a key can drive the API, call a real endpoint with it.
          *
          *     Every failure is a **`401`**, whether the key is unknown, revoked, or on a plan without
          *     API access. This endpoint does not answer `403`.
@@ -571,25 +591,54 @@ export interface components {
              *     and covered by a test, so it cannot drift — but it is a snapshot, not a closed enum:
              *     treat an unrecognised code as generic rather than as a parse failure.
              *
-             *     `api_access_denied`, `banners_not_found`, `cannot_build_banner`, `company_disabled`,
-             *     `company_not_found`, `company_payment_required`, `conditional_dependency_missing`,
-             *     `download_error`, `download_limited_reached`, `duplicate_format_name`,
-             *     `duplicate_layer_name`, `duplication_request_gone`, `duplication_request_not_found`,
-             *     `endpoint_not_found`, `feature_not_in_plan`, `format_not_found`, `generation_request_gone`,
-             *     `generation_request_not_found`, `image_fetching_error`, `internal_error`,
-             *     `internal_server_error`, `invalid_design_type`, `invalid_filetype`, `invalid_json`,
-             *     `invalid_payload`, `invalid_query_param`, `method_not_allowed`, `missing_assets`,
-             *     `missing_required`, `more_than_one_format`, `mutually_exclusive`, `not_acceptable`,
-             *     `not_found`, `not_related_to_same_format`, `not_related_to_same_template`,
-             *     `not_round_trippable`, `out_of_range`, `project_already_exists`, `project_not_found`,
-             *     `rate_limit_exceeded`, `rendering_failed`, `request_rate_limited`,
-             *     `reserved_format_name`,
-             *     `template_form_deleted`, `template_form_disabled`, `template_form_inactive`,
-             *     `template_form_not_found`, `template_import_already_processed`, `template_not_active`,
-             *     `template_not_found`, `template_not_static`, `unauthorized`, `unknown_enum_value`,
-             *     `unknown_field`, `unknown_font`, `unknown_format_key`, `unreachable_src`,
-             *     `unsupported_for_type`, `unsupported_media_type`, `visual_not_found`,
-             *     `workspace_template_not_found`, `wrong_type`
+             *     Grouped by **what you should do about it**, because that is the only thing that
+             *     changes your code. The grouping is guidance; the status line is what the response
+             *     actually carries, and a few codes appear twice because they genuinely mean two things.
+             *
+             *     **Fix the request, then send it again.** The payload, the parameters or the headers
+             *     were wrong: `invalid_payload`, `invalid_json`, `wrong_type`, `missing_required`,
+             *     `unknown_field`, `unknown_enum_value`, `unknown_format_key`, `out_of_range`,
+             *     `mutually_exclusive`, `conditional_dependency_missing`, `duplicate_format_name`,
+             *     `duplicate_layer_name`, `reserved_format_name`, `unsupported_for_type`,
+             *     `unknown_font`, `unreachable_src`, `invalid_query_param`, `invalid_filetype`,
+             *     `invalid_design_type`, `template_not_static`, `more_than_one_format`,
+             *     `missing_assets`, `not_round_trippable`, `unsupported_media_type`, `not_acceptable`,
+             *     `method_not_allowed`.
+             *
+             *     **Fix the identifier.** The request was well-formed, but named something that does
+             *     not exist or does not belong to this workspace: `template_not_found`,
+             *     `format_not_found`, `visual_not_found`, `generation_request_not_found`,
+             *     `duplication_request_not_found`, `workspace_template_not_found`, `project_not_found`,
+             *     `banners_not_found`, `not_related_to_same_template`, `not_related_to_same_format`,
+             *     `company_not_found`, `template_form_not_found`, `not_found`, `endpoint_not_found`.
+             *
+             *     **Too late.** The job finished, but its result is no longer kept (7 days):
+             *     `generation_request_gone`, `duplication_request_gone`. Generate again, and store the
+             *     result this time rather than re-polling for it later.
+             *
+             *     **Back off, then retry.** These two are the only ones worth a retry loop:
+             *     `request_rate_limited`, `rate_limit_exceeded`.
+             *
+             *     **Retrying never helps — something has to change first.** The plan, the credit
+             *     balance, or the workspace itself: `feature_not_in_plan`, `company_payment_required`,
+             *     `download_limited_reached`, `company_disabled`, `api_access_denied`. Note that
+             *     `rate_limit_exceeded` lands here too when it means "not enough credits"; the message
+             *     is what tells the two apart, which is why both entries name it.
+             *
+             *     **Authenticate.** `unauthorized` for a missing, unknown or revoked key;
+             *     `api_access_denied` when the key is valid but the plan excludes API access. There is
+             *     no 403 in this API.
+             *
+             *     **The resource is in the wrong state for this call.** Read it back to find out which:
+             *     `template_import_already_processed`, `project_already_exists`, `template_not_active`,
+             *     `template_form_deleted`, `template_form_disabled`, `template_form_inactive`.
+             *
+             *     **Valid request, unrenderable content.** The engine accepted the call and then
+             *     refused the artwork — most often text that cannot fit its layer:
+             *     `cannot_build_banner`, `rendering_failed`, `image_fetching_error`.
+             *
+             *     **Ours, not yours.** Retry once; if it persists, send us the response:
+             *     `internal_error`, `internal_server_error`, `download_error`.
              */
             id: string;
             /**
@@ -1042,6 +1091,47 @@ export interface components {
              */
             safe_size?: number;
         };
+        /**
+         * @description One page of a `printer_multipage` design, as returned in `pages[]`.
+         *
+         *     Deliberately **not** `DesignFormat`. A multipage design is one document with no formats —
+         *     each page is addressed by `id` (`page_1 … page_N`), has no format `uid`, and cannot carry
+         *     a dynamic image, so `GET /designs/{designId}/formats/{formatSpecifier}` answers
+         *     `404 format_not_found` for every specifier.
+         *
+         *     **A page carries no print settings.** `dpi`, `bleed_size` and `safe_size` belong to the
+         *     document and are returned once, at the root of the design read. `width` / `height` /
+         *     `unit` appear here because a page is a thing with dimensions, but every page of the
+         *     document has the same ones.
+         */
+        DesignPage: {
+            /**
+             * @description Page identifier, `page_1 … page_N`, in document order.
+             * @example page_1
+             */
+            id: string;
+            /**
+             * @description Page width as a float in `unit`. Every page of the document shares it.
+             * @example 210
+             */
+            width: number;
+            /**
+             * @description Page height as a float in `unit`. Every page of the document shares it.
+             * @example 297
+             */
+            height: number;
+            /**
+             * @description The document's physical authoring unit.
+             * @example mm
+             * @enum {string}
+             */
+            unit?: "mm" | "in";
+            /**
+             * Format: uri
+             * @description Preview image URL of this page.
+             */
+            preview_url?: string;
+        };
         /** @description Animated designs only. The design's timeline, read-only (all values in seconds). */
         DesignAnimation: {
             /**
@@ -1067,7 +1157,7 @@ export interface components {
              * @example text
              * @enum {string}
              */
-            type: "container" | "text" | "button" | "image" | "logo" | "shape" | "illustration" | "rating" | "qrcode" | "chart" | "video" | "audio" | "group";
+            type: "container" | "text" | "button" | "image" | "logo" | "shape" | "illustration" | "rating" | "qrcode" | "video" | "audio" | "group";
             /** @description The element's box, **keyed by format name**. */
             layout?: {
                 [key: string]: components["schemas"]["ElementLayout"];
@@ -1182,6 +1272,78 @@ export interface components {
             end_at_s?: number | null;
         };
         /**
+         * @description One element of a `printer_multipage` page, as returned in `elements_per_page`.
+         *
+         *     A page is a single format, so the per-format maps are collapsed exactly as they are on
+         *     `GET /designs/{designId}/formats/{formatSpecifier}`: `layout` is that page's box and an
+         *     attribute carries one `value`, not `values` keyed by format name.
+         *
+         *     **`attributes` is an object here, keyed by attribute id — every other read returns an
+         *     array.** That is the one difference from `DesignFormatElement`, which this schema
+         *     otherwise matches field for field. It is an inconsistency, not a feature: the two
+         *     single-format reads convert the platform's attribute map into an array and this path does
+         *     not. It is documented rather than corrected because the current shape is live and in use.
+         *     Expect it to be unified with `DesignFormatElement` in a future dated version, announced
+         *     in the changelog — write your attribute lookup so it can tolerate both, e.g. by
+         *     normalising with `Object.values(attributes)` / `list(attributes.values())` when it is not
+         *     already an array.
+         */
+        DesignPageElement: {
+            /**
+             * @description Layer name (`root` is the special element carrying the page background color).
+             * @example headline
+             */
+            name: string;
+            /**
+             * @description Layer type. Narrower than the other reads: a page belongs to a print document, so `video` and `audio` — which exist only on `animated` designs — never appear here. `group` elements are injected only on the advanced view (`i=advanced`).
+             * @example text
+             * @enum {string}
+             */
+            type: "container" | "text" | "button" | "image" | "logo" | "shape" | "illustration" | "rating" | "qrcode" | "group";
+            settings?: {
+                /** @example false */
+                is_mandatory?: boolean;
+            };
+            /**
+             * @description The element's customisable attributes, **keyed by attribute id**. Each value carries
+             *     that attribute's `id`, an optional `help` string, and its single `value` on this page.
+             * @example {
+             *       "payload": {
+             *         "id": "payload",
+             *         "help": "Text content",
+             *         "value": "Spring Catalogue"
+             *       },
+             *       "font_size": {
+             *         "id": "font_size",
+             *         "help": "Font size in pt",
+             *         "value": 36
+             *       }
+             *     }
+             */
+            attributes?: {
+                [key: string]: {
+                    /** @example payload */
+                    id?: string;
+                    /** @example Text content (i.e. Lorem ipsum) */
+                    help?: string;
+                    /** @example Spring Catalogue */
+                    value?: string | number | boolean;
+                };
+            };
+            /** @description The element's box on this page, in the document's unit. */
+            layout?: components["schemas"]["ElementLayout"];
+            /** @description `group` layers only — the names of the layers this group contains. */
+            layer_ids?: string[];
+            /** @description `group` layers only — computed visibility on this page. */
+            hidden?: boolean;
+            /** @description `group` layers only — computed lock state on this page. */
+            locked?: boolean;
+            /** @description `group` layers only — auto-layout settings on this page. */
+            group?: components["schemas"]["GroupLayout"];
+            /** @description Masked `group` layers only — the mask geometry on this page. */
+            mask?: components["schemas"]["GroupMask"];
+        };
+        /**
          * @description An element as `GET /designs/{designId}/formats/{formatSpecifier}` returns it — the
          *     **single-format projection** of `DesignElement`.
          *
@@ -1201,7 +1363,7 @@ export interface components {
              * @example container
              * @enum {string}
              */
-            type: "container" | "text" | "button" | "image" | "logo" | "shape" | "illustration" | "rating" | "qrcode" | "chart" | "video" | "audio" | "group";
+            type: "container" | "text" | "button" | "image" | "logo" | "shape" | "illustration" | "rating" | "qrcode" | "video" | "audio" | "group";
             settings?: {
                 /**
                  * @description Whether the element is mandatory
@@ -1296,7 +1458,7 @@ export interface components {
             background_color?: components["schemas"]["backgroundColor"];
             background_padding?: components["schemas"]["backgroundPadding"];
             font_size?: components["schemas"]["fontSize"];
-            font?: components["schemas"]["font"];
+            font?: components["schemas"]["fontId"];
             font_weight?: components["schemas"]["fontWeight"];
             line_height?: components["schemas"]["lineHeight"];
             skew_y?: components["schemas"]["skewY"];
@@ -1331,18 +1493,6 @@ export interface components {
             side_border_offset?: number;
             /** @description Extends the length of the border beyond the text bounding box by the specified number of pixels. Default is 0. */
             side_border_spread?: number;
-            /**
-             * @description Key-value pairs used to replace variables within the text payload.
-             *     Variables are defined in the design as `{variableName}` placeholders.
-             *     Pass the variable name (without braces) as the key and the replacement value as the value.
-             * @example {
-             *       "username": "Alice",
-             *       "title": "Spring Sale"
-             *     }
-             */
-            vars?: {
-                [key: string]: string;
-            };
         };
         ButtonElement: {
             payload?: components["schemas"]["buttonPayload"];
@@ -1350,7 +1500,7 @@ export interface components {
             background_color?: components["schemas"]["backgroundColor"];
             background_padding?: components["schemas"]["backgroundPadding"];
             font_size?: components["schemas"]["fontSize"];
-            font?: components["schemas"]["font"];
+            font?: components["schemas"]["fontId"];
             font_weight?: components["schemas"]["fontWeight"];
             line_height?: components["schemas"]["lineHeight"];
             text_transform?: components["schemas"]["textTransform"];
@@ -1362,6 +1512,7 @@ export interface components {
              */
             text_align?: "left" | "center" | "right";
             stroke_color?: components["schemas"]["strokeColor"];
+            stroke_width?: components["schemas"]["strokeWidth"];
             /** @description Minimum font size allowed when `auto_resize` is enabled. */
             min_font_size?: number;
             /** @description Automatically adjusts the label size to fit the button. When true, `min_font_size` must also be defined. */
@@ -1587,13 +1738,47 @@ export interface components {
              */
             speed?: number;
         };
-        /** @description A `dictionary` containing all elements with properties you would like to override from the default design (keys correspond to layer names) */
+        /**
+         * @description A `dictionary` containing all elements with properties you would like to override from
+         *     the default design (keys correspond to layer names). The reserved key `vars` is not a
+         *     layer: it carries the design-wide text variable values.
+         *
+         *     **Unknown names are accepted, not rejected — and this is the one thing to know before
+         *     you generate this object programmatically.** The API does not check element names or
+         *     property names against the design: a key naming a layer that does not exist, or a
+         *     property that layer does not have, passes validation and simply does not change the
+         *     output. There is no error and no warning, so a typo shows up as an asset that renders
+         *     with the design's saved content instead of yours.
+         *
+         *     This leniency is deliberate and long-standing — live integrations depend on it, so it
+         *     will not be tightened. Two consequences worth designing for:
+         *
+         *     - **Check names against `GET /designs/{designId}`** rather than against a `400`. That
+         *       response lists every element and every attribute it accepts.
+         *     - **Offline schema validation cannot help either.** The branches below overlap by design
+         *       (an element payload carries no type field — the layer's type comes from the design), so
+         *       a generic JSON-Schema validator accepts any object here.
+         */
         Elements: {
-            [key: string]: components["schemas"]["RootElement"] | components["schemas"]["Element"] | components["schemas"]["VideoElement"] | components["schemas"]["AudioElement"];
+            [key: string]: components["schemas"]["RootElement"] | components["schemas"]["Element"] | components["schemas"]["VideoElement"] | components["schemas"]["AudioElement"] | components["schemas"]["ElementVars"];
         };
         /** @description Same as `Elements`, but its image element also exposes AI generation properties (`text_to_image`, inpainting, background removal model) that are only available for asynchronous generation. */
         AsyncElements: {
-            [key: string]: components["schemas"]["RootElement"] | components["schemas"]["AsyncElement"] | components["schemas"]["VideoElement"] | components["schemas"]["AudioElement"];
+            [key: string]: components["schemas"]["RootElement"] | components["schemas"]["AsyncElement"] | components["schemas"]["VideoElement"] | components["schemas"]["AudioElement"] | components["schemas"]["ElementVars"];
+        };
+        /**
+         * @description Design-wide text variable values. This is a reserved key of `elements`, a sibling of the
+         *     layer names — not a property of a text layer. Variables are authored in the design as
+         *     `{variableName}` placeholders; pass the variable name (without braces) as the key and the
+         *     replacement value as the value. Every text layer of the design using that placeholder is
+         *     substituted.
+         * @example {
+         *       "username": "Alice",
+         *       "title": "Spring Sale"
+         *     }
+         */
+        ElementVars: {
+            [key: string]: string;
         };
         /** @description Per-page element overrides, keyed by page identifier (`page_1 … page_N`). Each value is a dictionary of element overrides for that page, in the same shape as `elements` on every other generation endpoint — `root` plus any layer of that page, keyed by layer name. This endpoint is asynchronous, so its image layers accept the AI properties too. */
         Pages: {
@@ -1819,7 +2004,7 @@ export interface components {
          *
          *     The fonts list is available by calling the [GET /fonts](#tag/Fonts) API route.
          */
-        font: string;
+        fontId: string;
         /**
          * @description **Force a font weight**. *Example: 500*
          *
@@ -1859,7 +2044,7 @@ export interface components {
          * @enum {string}
          */
         textTransform: "none" | "uppercase" | "lowercase" | "titlecase" | "capitalize";
-        /** @description **Width of the stroke** *Example: 10*. Text tops out at 40; a shape layer accepts up to 60 (see `shapeStrokeWidth`). The design **import** allows up to 1000, so a design can hold a stroke this endpoint cannot reproduce — the import bound is the design's, this one is the override's. */
+        /** @description **Width of the stroke** *Example: 10*. Text and button top out at 40; a shape layer accepts up to 60 (see `shapeStrokeWidth`). The design **import** allows up to 1000, so a design can hold a stroke this endpoint cannot reproduce — the import bound is the design's, this one is the override's. */
         strokeWidth: number;
         /** @description **Width of the shape's stroke** *Example: 10*. The design **import** allows up to 1000 — see `strokeWidth`. */
         shapeStrokeWidth: number;
@@ -1905,14 +2090,17 @@ export interface components {
         /**
          * @description **A mask can be added to the image**.
          *
-         *     5 masks are available:
-         *     - `circle`: The image will be rendered as a circle. No additional property is available.
+         *     8 masks are available. Only `rounded_corners` takes a `mask_properties`; the other
+         *     seven are shapes with no additional property.
+         *
+         *     - `circle`: The image will be rendered as a circle.
          *     - `rounded_corners`: Corners of the image will be rounded. It requires another property: `mask_properties`.
-         *     - `blob`: The image will be rendered as a blob. No additional property is available.
-         *     - `squircle`: The image will be rendered as a squircle. No additional property is available.
-         *     - `pentagon`: The image will be rendered as a pentagon. No additional property is available.
-         *     - `hexagon`: The image will be rendered as a hexagon. No additional property is available.
-         *     - `parallelogram`: The image will be rendered as a parallelogram. No additional property is available.
+         *     - `blob`: The image will be rendered as a blob.
+         *     - `squircle`: The image will be rendered as a squircle.
+         *     - `pentagon`: The image will be rendered as a pentagon.
+         *     - `hexagon`: The image will be rendered as a hexagon.
+         *     - `parallelogram`: The image will be rendered as a parallelogram.
+         *     - `window`: The image will be rendered as a window (an arch — flat base, rounded top).
          * @enum {string}
          */
         maskName: "circle" | "rounded_corners" | "blob" | "squircle" | "pentagon" | "hexagon" | "parallelogram" | "window";
@@ -2142,7 +2330,7 @@ export interface components {
          * @description Requests allowed in the current window for this class of route. When several windows
          *     apply (a burst window and a sustained one), this describes the one closest to being
          *     exhausted — the one you will actually hit.
-         * @example 10
+         * @example 60
          */
         XRateLimitLimit: number;
         /**
@@ -2197,6 +2385,35 @@ export interface operations {
                          */
                         preview_url?: string;
                     })[];
+                };
+            };
+            /**
+             * @description `project_id` is not a UUID. An unknown `type` is ignored rather than rejected, so it
+             *     never answers `400`.
+             *
+             *     The reported `path` is always `category_id`, whichever of the two spellings you
+             *     sent — `category_id` is the deprecated alias of `project_id` and the two share one
+             *     validator, which kept the older wording so the released contract did not change.
+             */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "id": "invalid_payload",
+                     *       "message": "malformed id category_id",
+                     *       "errors": [
+                     *         {
+                     *           "path": "category_id",
+                     *           "code": "invalid_payload",
+                     *           "message": "malformed"
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
             401: components["responses"]["Unauthorized"];
@@ -2255,21 +2472,48 @@ export interface operations {
                         variables?: components["schemas"]["DesignVariables"];
                         animation?: components["schemas"]["DesignAnimation"];
                         /**
-                         * @description **`printer_multipage` designs only** — returned *instead of* `formats`.
-                         *     The document's ordered pages. Each item carries `id` (`page_1 … page_N`),
-                         *     `width`, `height`, `unit`, `preview_url`, and the read-only print settings
-                         *     `dpi` / `bleed_size` / `safe_size` (always present; a zone that is off
-                         *     reports `0`). All pages of a multipage design share the same dimensions.
+                         * @description **`printer_multipage` designs only** — the document's render DPI,
+                         *     computed at import time and capped at 300. Read-only.
+                         * @example 300
                          */
-                        pages?: components["schemas"]["DesignFormat"][];
+                        dpi?: number;
+                        /**
+                         * @description **`printer_multipage` designs only** — the document's bleed, a float in
+                         *     the design's unit; `0` means the zone is off.
+                         *
+                         *     Declared once, here, because a multipage document has a single print
+                         *     setup — the same reason the import declares `unit` / `width` / `height` /
+                         *     `bleed_size` / `safe_size` / `dpi` at the top level and leaves a page
+                         *     carrying only `background_color` and `layers`. **A page does not repeat
+                         *     it.**
+                         * @example 3
+                         */
+                        bleed_size?: number;
+                        /**
+                         * @description **`printer_multipage` designs only** — the document's safe zone, a float
+                         *     in the design's unit; `0` means the zone is off.
+                         * @example 5
+                         */
+                        safe_size?: number;
+                        /**
+                         * @description **`printer_multipage` designs only** — returned *instead of* `formats`.
+                         *     The document's ordered pages. Every page shares the document's dimensions
+                         *     and print settings, so a page carries neither: read those from the root.
+                         */
+                        pages?: components["schemas"]["DesignPage"][];
                         /**
                          * @description **`printer_multipage` designs only** — returned *instead of* `elements`.
                          *     An object keyed by page id (`page_1 … page_N`), each value being that
                          *     page's element list (group layers included only when `i=advanced` is
                          *     passed). Defaults to `{}`.
+                         *
+                         *     Items are `DesignPageElement`, **not** `DesignElement`: a page is a single
+                         *     format, so values are flat rather than keyed by format name. Note also
+                         *     that its `attributes` is an object, where every other read returns an
+                         *     array — see the schema.
                          */
                         elements_per_page?: {
-                            [key: string]: components["schemas"]["DesignElement"][];
+                            [key: string]: components["schemas"]["DesignPageElement"][];
                         };
                     };
                 };
@@ -2299,8 +2543,10 @@ export interface operations {
                  */
                 designId: components["parameters"]["DesignId"];
                 /**
-                 * @description Format name or UID. For a `printer_multipage` design this is the page identifier
-                 *     `page_1 … page_N` (a multipage design has no formats — each page is one format row).
+                 * @description Format name or UID. Prefer the UID — it survives a rename.
+                 *
+                 *     Not applicable to `printer_multipage` designs: they have no formats, so every value
+                 *     here answers `404` with `id: format_not_found`. See the endpoint description.
                  */
                 formatSpecifier: string;
             };
@@ -2559,7 +2805,18 @@ export interface operations {
                     "application/json": components["schemas"]["Banner"];
                 };
             };
-            400: components["responses"]["BadRequest"];
+            /**
+             * @description The request body or parameters are invalid, **or** the design is not `static`
+             *     (`template_not_static` — this endpoint renders single images only).
+             */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
             429: components["responses"]["GenerationRateLimited"];
@@ -2659,7 +2916,21 @@ export interface operations {
                     print?: {
                         /**
                          * Format: uuid
-                         * @description UUID of the color profile to apply
+                         * @description UUID of the color profile to apply. The built-ins, which are the same for
+                         *     every workspace:
+                         *
+                         *     | UUID | Profile |
+                         *     |---|---|
+                         *     | `be2ab219-8fe4-4d85-91ba-65bdc9ddaf01` | CMYK — ISO Coated v2 (ECI) |
+                         *     | `03738f37-5b6f-4be9-9100-706b1711f9dd` | CMYK — ISO Coated v2 (ECI) 300% |
+                         *     | `e0c86a8a-050c-41f1-885a-0f74b9baac50` | CMYK — ISO Uncoated |
+                         *     | `0e0355e6-2931-4c83-92f2-64db9f5ddffc` | CMYK — US Web Coated (SWOP 2006 5v2) |
+                         *     | `fac91df8-1155-11ef-b77e-f93002785645` | CMYK — ISO Newspaper26 v4 |
+                         *     | `db3c123e-1127-11ef-b77e-f93002785645` | RGB — No color profile |
+                         *
+                         *     A workspace may also hold custom profiles, whose UUIDs are not listed
+                         *     here. Omitted, the design's own profile is used. Not an enum: the list can
+                         *     grow, and a generated client should not reject a UUID it has not seen.
                          */
                         color_profile?: string;
                         display_crop_marks?: boolean;
@@ -2840,7 +3111,21 @@ export interface operations {
                     print?: {
                         /**
                          * Format: uuid
-                         * @description UUID of the color profile to apply
+                         * @description UUID of the color profile to apply. The built-ins, which are the same for
+                         *     every workspace:
+                         *
+                         *     | UUID | Profile |
+                         *     |---|---|
+                         *     | `be2ab219-8fe4-4d85-91ba-65bdc9ddaf01` | CMYK — ISO Coated v2 (ECI) |
+                         *     | `03738f37-5b6f-4be9-9100-706b1711f9dd` | CMYK — ISO Coated v2 (ECI) 300% |
+                         *     | `e0c86a8a-050c-41f1-885a-0f74b9baac50` | CMYK — ISO Uncoated |
+                         *     | `0e0355e6-2931-4c83-92f2-64db9f5ddffc` | CMYK — US Web Coated (SWOP 2006 5v2) |
+                         *     | `fac91df8-1155-11ef-b77e-f93002785645` | CMYK — ISO Newspaper26 v4 |
+                         *     | `db3c123e-1127-11ef-b77e-f93002785645` | RGB — No color profile |
+                         *
+                         *     A workspace may also hold custom profiles, whose UUIDs are not listed
+                         *     here. Omitted, the design's own profile is used. Not an enum: the list can
+                         *     grow, and a generated client should not reject a UUID it has not seen.
                          */
                         color_profile?: string;
                         display_crop_marks?: boolean;
@@ -2995,7 +3280,15 @@ export interface operations {
                     };
                 };
             };
-            /** @description Bad Request — `name` is missing or outside 2–100 characters. */
+            /**
+             * @description Bad Request — `name` is missing, outside 2–100 characters, or already taken
+             *     (`project_already_exists`).
+             *
+             *     Project names are unique within a workspace, and the comparison is made on the
+             *     **trimmed** name: `"  Summer  "` collides with an existing `"Summer"`. Note the
+             *     length check runs before trimming, so `"  a  "` passes validation and is stored as
+             *     the single character `a`.
+             */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -3039,7 +3332,31 @@ export interface operations {
                     "application/json": components["schemas"]["WorkspaceTemplate"][];
                 };
             };
-            400: components["responses"]["BadRequest"];
+            /**
+             * @description `category_id` is not a UUID. The only way this endpoint answers `400`: an unknown
+             *     `type` is ignored rather than rejected, so it never does.
+             */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "id": "invalid_payload",
+                     *       "message": "malformed id category_id",
+                     *       "errors": [
+                     *         {
+                     *           "path": "category_id",
+                     *           "code": "invalid_payload",
+                     *           "message": "malformed"
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             401: components["responses"]["Unauthorized"];
             429: components["responses"]["TooManyRequests"];
             500: components["responses"]["InternalServerError"];
