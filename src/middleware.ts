@@ -52,10 +52,14 @@ function retryAfterMs(response: Response): number | null {
  *
  * Two rules, both narrower than "retry every 429 and 5xx":
  *
- * - **429 is only retried when the response carries `Retry-After`.** On this API a bare 429 is
- *   not a rate limit — it is `rate_limit_exceeded`, which the edge also returns for "not enough
- *   credits" and for plan gates (HTML5/MP4/PDF not included). Those are permanent: retrying
- *   burns ~7s of backoff and fails anyway. A real throttle says when to come back.
+ * - **429 is only retried when the response carries `Retry-After`.** Three unrelated refusals
+ *   answer 429 here and only one is worth repeating. `request_rate_limited` is a genuine
+ *   throttle — too many requests for the route's tier — and the edge sends `Retry-After`
+ *   alongside `X-RateLimit-Limit` / `-Remaining` / `-Reset`, so it retries. `rate_limit_exceeded`
+ *   ("not enough credits", or the gateway's global ceiling) and `feature_not_in_plan` carry no
+ *   such header and are permanent for this key: retrying burns ~7s of backoff and fails anyway.
+ *   Keying on the header rather than on `id` is deliberate — the classification then cannot drift
+ *   as codes are added, because a refusal that tells you when to come back is one worth repeating.
  * - **5xx is only retried for idempotent methods.** A retried POST can bill a second generation.
  *
  * `timeoutMs` is the same value given to {@link timeoutMiddleware}: each attempt is dispatched with

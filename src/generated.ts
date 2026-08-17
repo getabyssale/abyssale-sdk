@@ -674,7 +674,7 @@ export interface components {
          *
          *     The value changes when a new version is released. Match the `vYYYY-MM-DD` shape rather than
          *     pinning today's literal, or your client breaks on the next release.
-         * @example v2026-08-10
+         * @example v2026-08-17
          */
         ApiVersion: string;
         /**
