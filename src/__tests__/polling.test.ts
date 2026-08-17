@@ -13,7 +13,11 @@ process.env.ABYSSALE_BASE_URL ??= "https://api.test.local";
 // Disable the HTTP-level retries so a `fetch` call count here means "one poll". The middleware's
 // own 5xx retrying is covered by middleware.test.ts; leaving it on would make every 503 below
 // consume four calls and conflate the two layers.
-process.env.ABYSSALE_MAX_RETRIES ??= "0";
+//
+// Assigned unconditionally, NOT with `??=`: `process.env` is shared across every test file in a
+// worker, so another file setting this first would silently double the fetch count here and the
+// failure would read as a bug in the poll.
+process.env.ABYSSALE_MAX_RETRIES = "0";
 
 let abyssale: typeof import("../index.js").default;
 let AbyssalePollingError: typeof import("../index.js").AbyssalePollingError;
@@ -154,16 +158,38 @@ describe("waitForGenerationRequest", () => {
     expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 
-  it("does not retry a 429 that carries no Retry-After — it is a verdict, not a throttle", async () => {
-    // `rate_limit_exceeded` means out of credits, `feature_not_in_plan` means the plan does not
-    // include this output. Neither improves by waiting. This used to be absorbed as a blip: the
-    // poll re-asked three times over ~21s and failed with the error it started with.
+  it("probes a bare 429 once, then gives up — not three times over ~21s", async () => {
+    // `rate_limit_exceeded` without `Retry-After` is ambiguous between a spent credit balance and
+    // the gateway's per-second ceiling, so it earns ONE re-ask. A second bare 429 answers the
+    // question — it is not the ceiling — and the poll stops rather than spending its whole
+    // transient budget, which is what it used to do.
     fetchMock.mockImplementation(() => json({ id: "rate_limit_exceeded" }, 429));
 
     const promise = abyssale.waitForGenerationRequest("broke", FAST);
     const assertion = expect(promise).rejects.toMatchObject({ id: "rate_limit_exceeded" });
     await Promise.all([vi.runAllTimersAsync(), assertion]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not probe a bare 429 that names a permanent cause", async () => {
+    fetchMock.mockImplementation(() => json({ id: "feature_not_in_plan" }, 429));
+
+    const promise = abyssale.waitForGenerationRequest("gated", FAST);
+    const assertion = expect(promise).rejects.toMatchObject({ id: "feature_not_in_plan" });
+    await Promise.all([vi.runAllTimersAsync(), assertion]);
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("recovers when the probe clears — the ceiling case it exists for", async () => {
+    fetchMock
+      .mockImplementationOnce(() => json({ id: "rate_limit_exceeded" }, 429))
+      .mockImplementation(() => json({ is_finalized: true, banners: [{ id: "b1" }] }));
+
+    const promise = abyssale.waitForGenerationRequest("bursty", FAST);
+    await vi.runAllTimersAsync();
+
+    expect(await promise).toMatchObject({ is_finalized: true });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("does retry a 429 that carries Retry-After — that one is a real throttle", async () => {

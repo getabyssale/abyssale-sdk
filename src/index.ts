@@ -1,6 +1,7 @@
 import createClient from "openapi-fetch";
 import type { paths, components, operations } from "./generated.js";
-import { retryMiddleware, timeoutMiddleware, isRetryableResponse, retryAfterMs } from "./middleware.js";
+import type { RetryPlan } from "./middleware.js";
+import { retryMiddleware, timeoutMiddleware, planRetry } from "./middleware.js";
 
 // ── Public type re-exports ────────────────────────────────────────────────────
 // Consumers can import these directly: import type { Banner } from '@abyssale/sdk'
@@ -415,21 +416,24 @@ function jitter(): number {
 }
 
 /**
- * Whether a failed poll is worth trying again.
+ * How a failed poll should be treated, or null when it is fatal.
  *
- * Defers to {@link isRetryableResponse} so this cannot drift from `retryMiddleware` again — it
- * had: this predicate retried *every* 429, including `rate_limit_exceeded` (out of credits) and
- * `feature_not_in_plan`, which no amount of waiting fixes. Three re-asks and ~21s later the poll
- * failed with the same error it started with.
+ * Defers to {@link planRetry} so this cannot drift from `retryMiddleware` again — it had: this
+ * predicate retried *every* 429, including the permanent ones, so three re-asks and ~21s later the
+ * poll failed with the error it started with.
  *
  * The rationale is unchanged: a 5xx or a real throttle says nothing about the generation itself,
  * while any other 4xx is a verdict — `generation_request_not_found` must fail on the first poll
  * rather than be re-asked for 30 minutes.
+ *
+ * The poll has the error body already parsed, so unlike the middleware it never re-reads the
+ * response to find the `id`.
  */
-function isTransientPollFailure(response: Response | undefined): boolean {
+function planPollRetry(response: Response | undefined, cause: unknown): RetryPlan | null {
   // A network-level throw (`fetch` rejected, or the request was aborted) has no response at all.
-  if (!response) return true;
-  return isRetryableResponse(response);
+  if (!response) return { probe: false, delayMs: null };
+  const id = typeof (cause as { id?: unknown } | null)?.id === "string" ? (cause as { id: string }).id : null;
+  return planRetry(response, id);
 }
 
 async function pollUntil<T>(
@@ -446,12 +450,21 @@ async function pollUntil<T>(
    * would spend the whole transient-failure budget inside the window it was told to sit out.
    */
   let serverRequestedWaitMs: number | null = null;
+  /**
+   * Bare `429`s absorbed so far. Capped at one for the whole poll, not one in a row: the probe
+   * exists to find out whether the refusal was the gateway's per-second ceiling, and a second
+   * bare 429 after a successful probe answers that — it is not the ceiling, so waiting is not the
+   * fix. Without this cap a spent credit balance would be re-asked for the full 30 minutes.
+   */
+  let ceilingProbes = 0;
 
   /** Fatal unless it is a blip and we have not seen too many in a row. */
   const absorb = (cause: unknown, response?: Response): AbyssalePollingError | null => {
-    if (!isTransientPollFailure(response)) return new AbyssalePollingError(cause);
+    const plan = planPollRetry(response, cause);
+    if (!plan) return new AbyssalePollingError(cause);
+    if (plan.probe && ++ceilingProbes > 1) return new AbyssalePollingError(cause);
     if (++transientFailures > POLL_MAX_TRANSIENT_FAILURES) return new AbyssalePollingError(cause);
-    serverRequestedWaitMs = response ? retryAfterMs(response) : null;
+    serverRequestedWaitMs = plan.delayMs;
     return null;
   };
 

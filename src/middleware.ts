@@ -16,6 +16,84 @@ export const RETRYABLE_SERVER_STATUSES = [500, 502, 503, 504];
 const IDEMPOTENT_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
 /**
+ * How long to wait before the single probe a bare `429` is given. See {@link planRetry}.
+ *
+ * Sized against the thing it is probing for: the global ceiling is 10 requests per **second**, so
+ * one second is the shortest wait that reliably clears it, and waiting longer only lengthens the
+ * failure when the refusal turns out to be permanent.
+ */
+export const CEILING_PROBE_DELAY_MS = 1_000;
+
+/**
+ * Error ids that answer `429` and are known to be permanent for this key, so not even the probe
+ * below is worth spending.
+ *
+ * `rate_limit_exceeded` is deliberately NOT here even though it is permanent when it means "out of
+ * credits" — see {@link planRetry} for why it cannot be classified from the id alone.
+ */
+const PERMANENT_429_CODES = new Set(["feature_not_in_plan"]);
+
+/** The `id` from an error envelope, or null if the body is absent or not the envelope. */
+export async function readErrorId(response: Response): Promise<string | null> {
+  try {
+    // Cloned: openapi-fetch reads the real body after the middleware chain returns.
+    const body = await response.clone().json();
+    return typeof body?.id === "string" ? body.id : null;
+  } catch {
+    return null;
+  }
+}
+
+/** How a response should be re-attempted, or null when it should not be. */
+export type RetryPlan = {
+  /** true = exactly one attempt, whatever `maxRetries` says. See {@link planRetry}. */
+  probe: boolean;
+  /** Fixed wait before the first attempt; null means use the exponential schedule. */
+  delayMs: number | null;
+};
+
+/**
+ * Whether a response is worth asking for again, ignoring the request method.
+ *
+ * The single derivation of that question, used by {@link retryMiddleware} and by the polling
+ * helpers in `index.ts`. They used to answer it separately and had already drifted. Anything
+ * method-sensitive (a 5xx on a POST) stays with the caller — a poll is always a GET, so only the
+ * middleware has that concern.
+ *
+ * `429` is the hard case, because **three unrelated refusals share the status and two of them
+ * share an id**:
+ *
+ * - `request_rate_limited` — the per-workspace endpoint budget. The edge sends `Retry-After`
+ *   alongside it, so it is unambiguous and gets the full retry ladder.
+ * - `feature_not_in_plan` — your plan excludes this design type. Permanent; never retried.
+ * - `rate_limit_exceeded` — **two different things under one id.** Either the plan's credits are
+ *   spent (permanent), or the gateway's global 10 req/s ceiling was hit (clears in under a
+ *   second). Only `message` distinguishes them, and the ceiling is enforced at the GATEWAY, one
+ *   layer above the edge, so its response carries neither `Retry-After` nor reliably the edge's
+ *   envelope at all.
+ *
+ * That last case is why a bare `429` is not simply fatal. Treating it as permanent — which this
+ * did — means a burst of parallel generation calls fails outright, and generation endpoints are
+ * in no tier, so the ceiling is the ONLY limit they can hit. Treating it as fully retryable, which
+ * it did before that, spent ~7s of backoff on refusals that never clear.
+ *
+ * So it gets exactly **one** probe after a fixed second. Being wrong costs one second on a call
+ * that was failing anyway; being right rescues a call that would otherwise have failed outright.
+ * That asymmetry, not a confident classification, is the argument.
+ */
+export function planRetry(response: Response, errorId?: string | null): RetryPlan | null {
+  if (RETRYABLE_SERVER_STATUSES.includes(response.status))
+    return { probe: false, delayMs: retryAfterMs(response) };
+  if (response.status !== 429) return null;
+
+  const after = retryAfterMs(response);
+  // It told us when to come back, so it is a real throttle and we believe it.
+  if (after !== null) return { probe: false, delayMs: after };
+  if (errorId && PERMANENT_429_CODES.has(errorId)) return null;
+  return { probe: true, delayMs: CEILING_PROBE_DELAY_MS };
+}
+
+/**
  * What a retry needs that it cannot recover from the request it is handed in `onResponse`.
  *
  * Keyed on the `Request` instance openapi-fetch passes unchanged from `onRequest` to `onResponse`,
@@ -58,34 +136,16 @@ export function retryAfterMs(response: Response): number | null {
 }
 
 /**
- * Whether a response is worth asking for again, ignoring the request method.
- *
- * The single derivation of that question, used by {@link retryMiddleware} and by the polling
- * helpers in `index.ts`. They used to answer it separately and had already drifted: the poll
- * retried every 429, including the ones that are permanent, while the middleware required
- * `Retry-After`. Anything method-sensitive (a 5xx on a POST) stays with the caller — a poll is
- * always a GET, so only the middleware has that concern.
- */
-export function isRetryableResponse(response: Response): boolean {
-  if (RETRYABLE_SERVER_STATUSES.includes(response.status)) return true;
-  // A 429 is only worth repeating when it says when to come back. See `retryMiddleware`.
-  return response.status === 429 && retryAfterMs(response) !== null;
-}
-
-/**
  * Retry middleware.
  *
- * Two rules, both narrower than "retry every 429 and 5xx":
+ * Three rules, all narrower than "retry every 429 and 5xx":
  *
- * - **429 is only retried when the response carries `Retry-After`.** Three unrelated refusals
- *   answer 429 here and only one is worth repeating. `request_rate_limited` is a genuine
- *   throttle — too many requests for the route's tier — and the edge sends `Retry-After`
- *   alongside `X-RateLimit-Limit` / `-Remaining` / `-Reset`, so it retries. `rate_limit_exceeded`
- *   ("not enough credits", or the gateway's global ceiling) and `feature_not_in_plan` carry no
- *   such header and are permanent for this key: retrying burns ~7s of backoff and fails anyway.
- *   Keying on the header rather than on `id` is deliberate — the classification then cannot drift
- *   as codes are added, because a refusal that tells you when to come back is one worth repeating.
  * - **5xx is only retried for idempotent methods.** A retried POST can bill a second generation.
+ * - **A 429 carrying `Retry-After` gets the full ladder** — it named a window, so it is a real
+ *   throttle and waiting is exactly the right response.
+ * - **A bare 429 gets one probe**, one second later. See {@link planRetry} for why a status this
+ *   overloaded cannot be classified confidently, and why the asymmetric cost of guessing wrong
+ *   settles it.
  *
  * `timeoutMs` is the same value given to {@link timeoutMiddleware}: each attempt is dispatched with
  * its own fresh timeout window, so a long `Retry-After` no longer eats into the budget of the
@@ -94,7 +154,9 @@ export function isRetryableResponse(response: Response): boolean {
 export function retryMiddleware(maxRetries: number, timeoutMs: number): Middleware {
   return {
     async onResponse({ response, request }) {
-      if (!isRetryableResponse(response)) return;
+      // The body is only read for a bare 429, where the id can rule the retry out entirely.
+      const plan = planRetry(response, response.status === 429 ? await readErrorId(response) : null);
+      if (!plan) return;
       // Method-sensitive, so it stays here rather than in the shared predicate: a 5xx on a write
       // may already have been processed.
       if (RETRYABLE_SERVER_STATUSES.includes(response.status) && !IDEMPOTENT_METHODS.has(request.method.toUpperCase()))
@@ -108,12 +170,16 @@ export function retryMiddleware(maxRetries: number, timeoutMs: number): Middlewa
       const replayable = state?.replayable ?? (request.body === null ? request : null);
       if (!replayable) return;
 
-      let after = retryAfterMs(response);
+      let after = plan.delayMs;
+      // A probe is one attempt by definition — it exists to find out whether the refusal clears,
+      // not to wait one out, so it does not scale with `maxRetries`. It is still CAPPED by it:
+      // `ABYSSALE_MAX_RETRIES=0` means retries are off, and a probe is a retry.
+      const attempts = plan.probe ? Math.min(1, maxRetries) : maxRetries;
 
       const callerSignal = state?.callerSignal;
 
-      for (let attempt = 1; attempt <= maxRetries; attempt++) {
-        // Honour `Retry-After` when the server sent one, else exponential backoff with jitter:
+      for (let attempt = 1; attempt <= attempts; attempt++) {
+        // Honour the plan's fixed delay when there is one, else exponential backoff with jitter:
         // 1s, 2s, 4s … ± up to 100ms.
         const delay = after ?? 2 ** (attempt - 1) * 1000 + Math.random() * 100;
         await new Promise((r) => setTimeout(r, delay));
@@ -128,13 +194,14 @@ export function retryMiddleware(maxRetries: number, timeoutMs: number): Middlewa
         // Cloned off `replayable` rather than off `request`, whose body `fetch` already consumed,
         // and cloned again on every pass because a clone is single-use too.
         const retried = await fetch(withTimeoutSignal(replayable.clone(), timeoutMs, callerSignal));
-        // Same predicate as the entry check — a success, a verdict, or a 429 that stopped saying
-        // when to come back all end the loop and are handed back as-is.
-        if (!isRetryableResponse(retried)) return retried;
+        // If this was the last attempt, hand back what we got — no need to classify it.
+        if (attempt === attempts) return retried;
 
-        // If this was the last attempt, return the last response as-is
-        if (attempt === maxRetries) return retried;
-        after = retryAfterMs(retried);
+        // Same classification as the entry check. A success or a verdict ends the loop and is
+        // handed back as-is; so does a bare 429 arriving here, because its probe was this attempt.
+        const next = planRetry(retried, retried.status === 429 ? await readErrorId(retried) : null);
+        if (!next || next.probe) return retried;
+        after = next.delayMs;
       }
     },
   };

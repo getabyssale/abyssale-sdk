@@ -15,7 +15,9 @@ import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from "vite
  */
 process.env.ABYSSALE_API_KEY ??= "test-key";
 process.env.ABYSSALE_BASE_URL ??= "https://api.test.local";
-process.env.ABYSSALE_MAX_RETRIES ??= "2";
+// Unconditional, not `??=` — see the same note in polling.test.ts. `process.env` is shared across
+// files in a worker, and the retry count is exactly what these assertions count.
+process.env.ABYSSALE_MAX_RETRIES = "2";
 
 let abyssale: typeof import("../index.js").default;
 let fetchMock: ReturnType<typeof vi.fn>;

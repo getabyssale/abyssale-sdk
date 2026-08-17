@@ -38,10 +38,19 @@ All notable changes to `@abyssale/sdk` are documented here.
   batch or duplicates a template — all of which consume credits — and a `500`/`504` does not mean
   the work did not happen. Retrying one could bill up to four generations for a single call.
   Retries now apply to `5xx` on read requests only.
-- **A bare `429` is no longer retried.** On this API `rate_limit_exceeded` is also returned for
-  "not enough credits" and for plan gates, which never succeed on retry — the SDK just spent ~7s
-  backing off before failing anyway. A `429` is retried only when the response carries
-  `Retry-After`, and then for exactly that long.
+- **A bare `429` is probed once instead of being retried three times or not at all.** Three
+  unrelated refusals answer `429` and two of them share an id, so neither extreme was right. A
+  `429` carrying `Retry-After` is a genuine endpoint throttle (`request_rate_limited`) and gets
+  the full ladder, waiting exactly as long as it was told. Without that header the SDK cannot
+  tell a spent credit balance from the gateway's global 10 req/s ceiling — both answer
+  `rate_limit_exceeded`, and the ceiling is enforced a layer above the API, so it carries neither
+  the header nor reliably the error envelope. Retrying all of them burned ~7s on refusals that
+  never clear; retrying none of them failed a burst of parallel generation calls outright, and
+  generation endpoints are in no tier, so the ceiling is the only limit they can hit. So a bare
+  `429` now gets exactly **one** retry after a fixed second — one second is what the per-second
+  ceiling needs, and being wrong costs a second on a call that was failing anyway. A bare `429`
+  identified as `feature_not_in_plan` is unambiguous and is not retried at all.
+  `ABYSSALE_MAX_RETRIES=0` disables the probe along with everything else.
 - **A retry no longer inherits the first attempt's timeout.** `AbortSignal.timeout` starts counting
   when it is created, and retries reused the signal built for the original request — so one
   `ABYSSALE_TIMEOUT_MS` window covered every attempt *plus* the backoff sleeps between them. Three

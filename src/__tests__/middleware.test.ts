@@ -40,19 +40,80 @@ describe("retryMiddleware", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it("does not retry a bare 429 — on this API it means credits/plan, not throttling", async () => {
-    // `rate_limit_exceeded` is also what the edge returns for "not enough credits" and for plan
-    // gates. Those never succeed on retry; backing off three times just delays the failure.
+  it("probes a bare 429 exactly once, whatever maxRetries says", async () => {
+    // A bare 429 is ambiguous: `rate_limit_exceeded` covers BOTH a spent credit balance
+    // (permanent) and the gateway's global 10 req/s ceiling (clears in under a second), and the
+    // ceiling is enforced above the edge so it carries no `Retry-After` to tell them apart. One
+    // probe costs a second when the refusal is permanent and rescues the call when it is not.
+    // maxRetries is 3 here precisely to show the probe does not obey it.
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, { status: 429 }));
+    const middleware = retryMiddleware(3, 30_000);
+
+    const promise = middleware.onResponse!({
+      response: new Response(null, { status: 429 }),
+      request: new Request("https://example.com"),
+      options: {},
+    } as Parameters<NonNullable<typeof middleware.onResponse>>[0]);
+    await vi.runAllTimersAsync();
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect((await promise)?.status).toBe(429);
+  });
+
+  it("waits a second before the probe — the ceiling is per second", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, { status: 200 }));
+    const middleware = retryMiddleware(3, 30_000);
+
+    const promise = middleware.onResponse!({
+      response: new Response(null, { status: 429 }),
+      request: new Request("https://example.com"),
+      options: {},
+    } as Parameters<NonNullable<typeof middleware.onResponse>>[0]);
+
+    await vi.advanceTimersByTimeAsync(900);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(200);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+
+    await vi.runAllTimersAsync();
+    expect((await promise)?.status).toBe(200);
+  });
+
+  it("does not probe a bare 429 whose id is permanent", async () => {
+    // `feature_not_in_plan` says the plan excludes this design type. Unlike `rate_limit_exceeded`
+    // it is unambiguous, so not even one second is worth spending on it.
     const fetchSpy = vi.spyOn(globalThis, "fetch");
     const middleware = retryMiddleware(3, 30_000);
+
     const result = await middleware.onResponse!({
-      response: new Response(null, { status: 429 }),
+      response: new Response(JSON.stringify({ id: "feature_not_in_plan" }), {
+        status: 429,
+        headers: { "content-type": "application/json" },
+      }),
       request: new Request("https://example.com"),
       options: {},
     } as Parameters<NonNullable<typeof middleware.onResponse>>[0]);
 
     expect(result).toBeUndefined();
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("leaves the response body readable after inspecting its id", async () => {
+    // The id is read off a CLONE — openapi-fetch parses the real body after the middleware chain
+    // returns, and consuming it here would hand the caller an unreadable response.
+    const middleware = retryMiddleware(3, 30_000);
+    const response = new Response(JSON.stringify({ id: "feature_not_in_plan", message: "Upgrade" }), {
+      status: 429,
+      headers: { "content-type": "application/json" },
+    });
+
+    await middleware.onResponse!({
+      response,
+      request: new Request("https://example.com"),
+      options: {},
+    } as Parameters<NonNullable<typeof middleware.onResponse>>[0]);
+
+    expect(await response.json()).toMatchObject({ id: "feature_not_in_plan", message: "Upgrade" });
   });
 
   it("does not retry a POST on 5xx — a repeat would bill a second generation", async () => {
@@ -218,6 +279,23 @@ describe("retryMiddleware", () => {
 
     expect((await promise)?.status).toBe(429);
     expect(bodies).toEqual([payload, payload, payload]);
+  });
+
+  it("does not probe a bare 429 when retries are switched off", async () => {
+    // A probe does not scale with maxRetries, but it is still capped by it: 0 means off, and a
+    // probe is a retry. Missing this made `ABYSSALE_MAX_RETRIES=0` still issue one request.
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const middleware = retryMiddleware(0, 30_000);
+
+    const promise = middleware.onResponse!({
+      response: new Response(null, { status: 429 }),
+      request: new Request("https://example.com"),
+      options: {},
+    } as Parameters<NonNullable<typeof middleware.onResponse>>[0]);
+    await vi.runAllTimersAsync();
+
+    expect(await promise).toBeUndefined();
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it("returns undefined with maxRetries = 0 rather than swallowing the response", async () => {
