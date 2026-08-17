@@ -2,7 +2,7 @@
 
 All notable changes to `@abyssale/sdk` are documented here.
 
-## [1.1.0] — 2026-08-10
+## [1.1.0] — 2026-08-17
 
 ### Added
 - `verifyApiKey()` — `POST /auth`, returns the workspace the key belongs to. Use it to test a key: the
@@ -31,7 +31,7 @@ All notable changes to `@abyssale/sdk` are documented here.
 - `npm run typecheck` — `tsc --noEmit` over `src`, plus a pass over `examples/` resolving
   `@abyssale/sdk` to `src/index.ts`. The examples were previously never compiled by any script, so
   they could silently rot against a regenerated `src/generated.ts`. Runs in `prepublishOnly`.
-- Types track API version `v2026-08-10`: responses now document the top-level `version` field (`ApiVersion`); `DesignImportProblem.code` is optional (informational export warnings carry only `message`); `Banner.version` is documented as the file's integer counter, not the API version.
+- Types track API version `v2026-08-17`: responses now document the top-level `version` field (`ApiVersion`); `DesignImportProblem.code` is optional (informational export warnings carry only `message`); `Banner.version` is documented as the file's integer counter, not the API version.
 
 ### Fixed
 - **A failed `POST` is no longer retried.** Every `POST` in this API generates an asset, queues a
@@ -69,13 +69,13 @@ All notable changes to `@abyssale/sdk` are documented here.
   plain `Error`s; all three are now `AbyssalePollingError` with the original on `.cause`.
 
 ### Changed (types)
-- Regenerated against API `v2026-08-10`: the `errors[]` item doc records that detail relayed from
+- Regenerated against API `v2026-08-17`: the `errors[]` item doc records that detail relayed from
   the generation engine is translated into `{path, code, message}` before it reaches you (it used
   to arrive as `{field, message}`, contradicting the required `path`/`code`), and a printer
   format's `dpi` / `bleed_size` / `safe_size` are documented as always present.
 - `ErrorResponse.id` is now **required** (`id: string`, was `id?: string`). The API guarantees it
   on every error response, and typing it optional forced callers into `err.id!` or a fallback
-  branch the API never takes. Requires API `v2026-08-10` or later.
+  branch the API never takes. Requires API `v2026-08-17` or later.
 
 ### Removed
 - **`index.js`** — a hand-written CommonJS client from the repo's first commit, superseded by
