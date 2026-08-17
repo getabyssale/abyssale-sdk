@@ -21,16 +21,14 @@ const SPEC_URL = process.env.ABYSSALE_SPEC_URL ?? 'https://api-reference.abyssal
 const OUT = process.argv[2] ?? 'spec.stripped.json'
 
 /**
- * Paths removed wholesale. The as-import path is listed under both parameter spellings: the
- * published spec still names it `{designUuid}`, while the edge repo has renamed it to
- * `{designId}` for consistency with `GET /designs/{designId}`. Keep both until the rename is
- * published, so `npm run generate` strips correctly against either source.
+ * Paths removed wholesale. The as-import path used to be listed under both parameter spellings
+ * while `{designUuid}` → `{designId}` was still unpublished; v2026-08-17 shipped the rename, so
+ * the published spec and the edge repo agree and only `{designId}` remains.
  */
 const EXCLUDED_PATHS = [
   '/designs/import/json',
   '/designs/import/json/{importId}',
   '/designs/{designId}/as-import',
-  '/designs/{designUuid}/as-import',
 ]
 
 /**
