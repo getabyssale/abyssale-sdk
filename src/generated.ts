@@ -1556,14 +1556,20 @@ export interface components {
             /** @description Additional settings for auto-focus. */
             auto_focus_properties?: {
                 /**
-                 * @description Model used for focusing. `generic` for objects, `people` for human subjects, `face` for face detection. Default is `generic`.
+                 * @description Model used for focusing. `generic` for objects, `people` for human subjects.
+                 *     Default is `generic`.
+                 *
+                 *     **`face` is deprecated** — use `people` with `focus_framing: "face"`, which
+                 *     detects faces with the same model and additionally honours `focus_zoom` and
+                 *     `focus_target`. `face` ignores all three. `face` keeps working; no removal date
+                 *     is set.
                  * @enum {string}
                  */
                 model?: "generic" | "people" | "face";
                 /** @description List of object labels to focus on (generic model only). Uses Open Images Dataset labels. */
                 focus_objects?: string[];
                 /**
-                 * @description Specific to `people` model. Defines which part of the subject to frame.
+                 * @description Specific to `people` model. Defines which part of the subject to frame. Default is `face`, which is why `people` alone replaces the deprecated `face` model.
                  * @enum {string}
                  */
                 focus_framing?: "face" | "head" | "shoulders" | "full_body";
@@ -1610,14 +1616,20 @@ export interface components {
             /** @description Additional settings for auto-focus. */
             auto_focus_properties?: {
                 /**
-                 * @description Model used for focusing. `generic` for objects, `people` for human subjects, `face` for face detection. Default is `generic`.
+                 * @description Model used for focusing. `generic` for objects, `people` for human subjects.
+                 *     Default is `generic`.
+                 *
+                 *     **`face` is deprecated** — use `people` with `focus_framing: "face"`, which
+                 *     detects faces with the same model and additionally honours `focus_zoom` and
+                 *     `focus_target`. `face` ignores all three. `face` keeps working; no removal date
+                 *     is set.
                  * @enum {string}
                  */
                 model?: "generic" | "people" | "face";
                 /** @description List of object labels to focus on (generic model only). Uses Open Images Dataset labels. */
                 focus_objects?: string[];
                 /**
-                 * @description Specific to `people` model. Defines which part of the subject to frame.
+                 * @description Specific to `people` model. Defines which part of the subject to frame. Default is `face`, which is why `people` alone replaces the deprecated `face` model.
                  * @enum {string}
                  */
                 focus_framing?: "face" | "head" | "shoulders" | "full_body";
