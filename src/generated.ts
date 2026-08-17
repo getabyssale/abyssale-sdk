@@ -609,8 +609,8 @@ export interface components {
              *     not exist or does not belong to this workspace: `template_not_found`,
              *     `format_not_found`, `visual_not_found`, `generation_request_not_found`,
              *     `duplication_request_not_found`, `workspace_template_not_found`, `project_not_found`,
-             *     `banners_not_found`, `not_related_to_same_template`, `not_related_to_same_format`,
-             *     `company_not_found`, `template_form_not_found`, `not_found`, `endpoint_not_found`.
+             *     `not_related_to_same_template`, `not_related_to_same_format`, `not_found`,
+             *     `endpoint_not_found`.
              *
              *     **Too late.** The job finished, but its result is no longer kept (7 days):
              *     `generation_request_gone`, `duplication_request_gone`. Generate again, and store the
@@ -619,26 +619,24 @@ export interface components {
              *     **Back off, then retry.** These two are the only ones worth a retry loop:
              *     `request_rate_limited`, `rate_limit_exceeded`.
              *
-             *     **Retrying never helps — something has to change first.** The plan, the credit
-             *     balance, or the workspace itself: `feature_not_in_plan`, `company_payment_required`,
-             *     `download_limited_reached`, `company_disabled`, `api_access_denied`. Note that
-             *     `rate_limit_exceeded` lands here too when it means "not enough credits"; the message
-             *     is what tells the two apart, which is why both entries name it.
+             *     **Retrying never helps — something has to change first.** The plan or the credit
+             *     balance: `feature_not_in_plan`, `api_access_denied`. Note that `rate_limit_exceeded`
+             *     lands here too when it means "not enough credits"; the message is what tells the two
+             *     apart, which is why both entries name it.
              *
              *     **Authenticate.** `unauthorized` for a missing, unknown or revoked key;
              *     `api_access_denied` when the key is valid but the plan excludes API access. There is
              *     no 403 in this API.
              *
              *     **The resource is in the wrong state for this call.** Read it back to find out which:
-             *     `template_import_already_processed`, `project_already_exists`, `template_not_active`,
-             *     `template_form_deleted`, `template_form_disabled`, `template_form_inactive`.
+             *     `template_import_already_processed`, `project_already_exists`, `template_not_active`.
              *
              *     **Valid request, unrenderable content.** The engine accepted the call and then
              *     refused the artwork — most often text that cannot fit its layer:
-             *     `cannot_build_banner`, `rendering_failed`, `image_fetching_error`.
+             *     `cannot_build_banner`, `image_fetching_error`.
              *
              *     **Ours, not yours.** Retry once; if it persists, send us the response:
-             *     `internal_error`, `internal_server_error`, `download_error`.
+             *     `internal_error`, `internal_server_error`.
              */
             id: string;
             /**
@@ -2947,6 +2945,8 @@ export interface operations {
                         color_profile?: string;
                         display_crop_marks?: boolean;
                     };
+                    /** @description **`printer_multipage` designs only**, where it replaces `elements`: a multipage design is one document with no formats, so content is addressed per page. Ignored on every other design type. The dedicated [multipage PDF operation](#tag/Asset-Generation/operation/generateMultiPagePdf) takes the same field and is the clearer choice for print output; this one exists so a `printer_multipage` design can also be driven through the generic async endpoint. */
+                    pages?: components["schemas"]["Pages"];
                     /**
                      * Format: uuid
                      * @description UUID of the original visual this generation is based on.
@@ -3090,7 +3090,15 @@ export interface operations {
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
-            404: components["responses"]["NotFound"];
+            /** @description None of the `banner_ids` exist in this workspace (`visual_not_found`). An id that is not a valid UUID answers `endpoint_not_found` instead. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             429: components["responses"]["TooManyRequests"];
             500: components["responses"]["InternalServerError"];
         };
@@ -3441,6 +3449,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DuplicationRequest"];
+                };
+            };
+            /** @description `project_id` is absent or not a UUID (`missing_required` / `wrong_type`), or `name` is outside 2-100 characters (`out_of_range`). Field detail is in `errors[]`. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
             401: components["responses"]["Unauthorized"];
