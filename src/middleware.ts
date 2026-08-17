@@ -37,14 +37,32 @@ function withTimeoutSignal(request: Request, timeoutMs: number, callerSignal?: A
 /**
  * `Retry-After` in milliseconds — the header is either delta-seconds or an HTTP date.
  * Returns null when absent or unparseable.
+ *
+ * Exported so the polling loop can honour a throttle's own figure instead of overriding it with
+ * its backoff schedule.
  */
-function retryAfterMs(response: Response): number | null {
+export function retryAfterMs(response: Response): number | null {
   const raw = response.headers.get("retry-after");
   if (!raw) return null;
   const seconds = Number(raw);
   if (Number.isFinite(seconds)) return Math.max(0, seconds * 1000);
   const at = Date.parse(raw);
   return Number.isFinite(at) ? Math.max(0, at - Date.now()) : null;
+}
+
+/**
+ * Whether a response is worth asking for again, ignoring the request method.
+ *
+ * The single derivation of that question, used by {@link retryMiddleware} and by the polling
+ * helpers in `index.ts`. They used to answer it separately and had already drifted: the poll
+ * retried every 429, including the ones that are permanent, while the middleware required
+ * `Retry-After`. Anything method-sensitive (a 5xx on a POST) stays with the caller — a poll is
+ * always a GET, so only the middleware has that concern.
+ */
+export function isRetryableResponse(response: Response): boolean {
+  if (RETRYABLE_SERVER_STATUSES.includes(response.status)) return true;
+  // A 429 is only worth repeating when it says when to come back. See `retryMiddleware`.
+  return response.status === 429 && retryAfterMs(response) !== null;
 }
 
 /**
@@ -69,13 +87,13 @@ function retryAfterMs(response: Response): number | null {
 export function retryMiddleware(maxRetries: number, timeoutMs: number): Middleware {
   return {
     async onResponse({ response, request }) {
-      const isThrottle = response.status === 429;
-      const serverError = RETRYABLE_SERVER_STATUSES.includes(response.status);
-      if (!isThrottle && !serverError) return;
-      if (serverError && !IDEMPOTENT_METHODS.has(request.method.toUpperCase())) return;
+      if (!isRetryableResponse(response)) return;
+      // Method-sensitive, so it stays here rather than in the shared predicate: a 5xx on a write
+      // may already have been processed.
+      if (RETRYABLE_SERVER_STATUSES.includes(response.status) && !IDEMPOTENT_METHODS.has(request.method.toUpperCase()))
+        return;
 
       let after = retryAfterMs(response);
-      if (isThrottle && after === null) return;
 
       const callerSignal = callerSignals.get(request);
 
@@ -92,12 +110,13 @@ export function retryMiddleware(maxRetries: number, timeoutMs: number): Middlewa
         // its own `timeoutMs`, measured from its own dispatch, rather than inheriting a window that
         // opened before the first attempt and the backoff sleeps since.
         const retried = await fetch(withTimeoutSignal(request.clone(), timeoutMs, callerSignal));
-        if (retried.status !== 429 && !RETRYABLE_SERVER_STATUSES.includes(retried.status)) return retried;
+        // Same predicate as the entry check — a success, a verdict, or a 429 that stopped saying
+        // when to come back all end the loop and are handed back as-is.
+        if (!isRetryableResponse(retried)) return retried;
 
         // If this was the last attempt, return the last response as-is
         if (attempt === maxRetries) return retried;
         after = retryAfterMs(retried);
-        if (retried.status === 429 && after === null) return retried;
       }
     },
   };

@@ -154,6 +154,60 @@ describe("waitForGenerationRequest", () => {
     expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 
+  it("does not retry a 429 that carries no Retry-After — it is a verdict, not a throttle", async () => {
+    // `rate_limit_exceeded` means out of credits, `feature_not_in_plan` means the plan does not
+    // include this output. Neither improves by waiting. This used to be absorbed as a blip: the
+    // poll re-asked three times over ~21s and failed with the error it started with.
+    fetchMock.mockImplementation(() => json({ id: "rate_limit_exceeded" }, 429));
+
+    const promise = abyssale.waitForGenerationRequest("broke", FAST);
+    const assertion = expect(promise).rejects.toMatchObject({ id: "rate_limit_exceeded" });
+    await Promise.all([vi.runAllTimersAsync(), assertion]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does retry a 429 that carries Retry-After — that one is a real throttle", async () => {
+    const throttled = () =>
+      new Response(JSON.stringify({ id: "request_rate_limited" }), {
+        status: 429,
+        headers: { "content-type": "application/json", "retry-after": "1" },
+      });
+    fetchMock
+      .mockImplementationOnce(throttled)
+      .mockImplementation(() => json({ is_finalized: true, banners: [{ id: "b1" }] }));
+
+    const promise = abyssale.waitForGenerationRequest("throttled", FAST);
+    await vi.runAllTimersAsync();
+
+    expect(await promise).toMatchObject({ is_finalized: true });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("waits as long as Retry-After says, not the backoff interval", async () => {
+    fetchMock
+      .mockImplementationOnce(
+        () =>
+          new Response(JSON.stringify({ id: "request_rate_limited" }), {
+            status: 429,
+            headers: { "content-type": "application/json", "retry-after": "30" },
+          })
+      )
+      .mockImplementation(() => json({ is_finalized: true, banners: [] }));
+
+    // Default options: the interval floors at 2s, but the server asked for 30s and that has to
+    // win — otherwise the poll spends its whole transient budget inside the window it was told
+    // to sit out.
+    const promise = abyssale.waitForGenerationRequest("slow-throttle");
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(21_000);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    await vi.runAllTimersAsync();
+    expect(await promise).toMatchObject({ is_finalized: true });
+  });
+
   it("does not retry a 404 — a missing request will not appear later", async () => {
     fetchMock.mockImplementation(() => json({ id: "generation_request_not_found" }, 404));
 

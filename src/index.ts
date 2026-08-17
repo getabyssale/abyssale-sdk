@@ -1,6 +1,6 @@
 import createClient from "openapi-fetch";
 import type { paths, components, operations } from "./generated.js";
-import { retryMiddleware, timeoutMiddleware, RETRYABLE_SERVER_STATUSES } from "./middleware.js";
+import { retryMiddleware, timeoutMiddleware, isRetryableResponse, retryAfterMs } from "./middleware.js";
 
 // ── Public type re-exports ────────────────────────────────────────────────────
 // Consumers can import these directly: import type { Banner } from '@abyssale/sdk'
@@ -417,14 +417,19 @@ function jitter(): number {
 /**
  * Whether a failed poll is worth trying again.
  *
- * Same classification as `retryMiddleware`, and for the same reason: a 5xx or a throttle says
- * nothing about the generation itself, while any other 4xx is a verdict. In particular
- * `generation_request_not_found` must fail on the first poll rather than be re-asked for 30 minutes.
+ * Defers to {@link isRetryableResponse} so this cannot drift from `retryMiddleware` again — it
+ * had: this predicate retried *every* 429, including `rate_limit_exceeded` (out of credits) and
+ * `feature_not_in_plan`, which no amount of waiting fixes. Three re-asks and ~21s later the poll
+ * failed with the same error it started with.
+ *
+ * The rationale is unchanged: a 5xx or a real throttle says nothing about the generation itself,
+ * while any other 4xx is a verdict — `generation_request_not_found` must fail on the first poll
+ * rather than be re-asked for 30 minutes.
  */
 function isTransientPollFailure(response: Response | undefined): boolean {
   // A network-level throw (`fetch` rejected, or the request was aborted) has no response at all.
   if (!response) return true;
-  return RETRYABLE_SERVER_STATUSES.includes(response.status) || response.status === 429;
+  return isRetryableResponse(response);
 }
 
 async function pollUntil<T>(
@@ -435,11 +440,18 @@ async function pollUntil<T>(
   const deadline = Date.now() + opts.timeoutMs;
   let interval = opts.intervalMs;
   let transientFailures = 0;
+  /**
+   * How long the server asked us to wait, when the last failure said so. It replaces the backoff
+   * for exactly one wait: a throttle that says "60s" is not answered by re-asking in 3, which
+   * would spend the whole transient-failure budget inside the window it was told to sit out.
+   */
+  let serverRequestedWaitMs: number | null = null;
 
   /** Fatal unless it is a blip and we have not seen too many in a row. */
   const absorb = (cause: unknown, response?: Response): AbyssalePollingError | null => {
     if (!isTransientPollFailure(response)) return new AbyssalePollingError(cause);
     if (++transientFailures > POLL_MAX_TRANSIENT_FAILURES) return new AbyssalePollingError(cause);
+    serverRequestedWaitMs = response ? retryAfterMs(response) : null;
     return null;
   };
 
@@ -457,6 +469,7 @@ async function pollUntil<T>(
       else if (!data) failure = new AbyssalePollingError(new Error("the API returned an empty response"));
       else {
         transientFailures = 0;
+        serverRequestedWaitMs = null;
         if (isDone(data)) return data;
       }
     } catch (thrown) {
@@ -464,12 +477,16 @@ async function pollUntil<T>(
       failure = absorb(thrown, undefined);
     }
     if (failure) throw failure;
-    const wait = interval + jitter();
+    // Honour `Retry-After` when the last failure carried one, else the backoff schedule. No
+    // jitter on the server's own figure — it names a window boundary, not a contended resource.
+    const wait = serverRequestedWaitMs ?? interval + jitter();
     if (Date.now() + wait > deadline)
       throw new AbyssalePollingError(
         new Error(`no result after ${Math.round(opts.timeoutMs / 1000)}s — the request may still complete`)
       );
     await sleep(wait);
+    // The backoff advances on its own schedule, so a one-off `Retry-After` does not reset the
+    // ramp a long-running generation has already built up.
     interval = Math.min(interval * 2, opts.maxIntervalMs);
   }
 }
