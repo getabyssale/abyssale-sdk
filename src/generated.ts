@@ -16,7 +16,11 @@ export interface paths {
          * @description Retrieve all designs available in your Abyssale workspace. Each design defines
          *     the visual layout, available formats (dimensions), and configurable elements
          *     (text, images, shapes, etc.) that can be overridden during image generation.
-         *     Filter by design type or project category using query parameters.
+         *     Filter by design type or project using query parameters.
+         *
+         *     A design lives in a **project**. Organisation-level master designs are *workspace
+         *     templates*, live in a **category**, and are listed by `GET /workspace-templates`
+         *     instead — they never appear here.
          */
         get: operations["listDesigns"];
         put?: never;
@@ -39,6 +43,55 @@ export interface paths {
          * @description Retrieve the full specification of a design: its formats (dimensions and preview URLs),
          *     all configurable elements with their properties, and any template variables defined
          *     in text layers. Use this endpoint to discover what data to send in a generation request.
+         *
+         *     For printer designs, each format additionally carries its print settings read-only:
+         *     `dpi` (integer render DPI computed at import time, capped at 300), and `bleed_size` /
+         *     `safe_size` (floats in the design's unit). **All three are always present on a printer
+         *     format** — a design with no stored print settings, or with a zone disabled, reports the
+         *     values the renderer itself uses: `dpi: 300` and `bleed_size` / `safe_size` of `0`, where
+         *     0 means the zone is off. Read them unconditionally; there is no need to test for the keys.
+         *
+         *     For animated designs, the response additionally carries the animation model: a
+         *     top-level `animation` object (`duration` — timeline length in seconds; `screenshot_at_s`
+         *     — the HTML5 backup-screenshot moment, null on designs created before it was recorded), a per-element
+         *     `animation` object (`start_at_s`, `end_at_s`, `tweens` `[{id, type, keyframes}]` with
+         *     raw keyframe objects) on elements that carry timing or tweens, and video/audio media
+         *     attributes (`video_url`/`audio_url`, `video_duration`, `video_muted`/`audio_muted`,
+         *     `max_volume`) in the standard attribute shape.
+         *
+         *     **Multipage print designs (`printer_multipage`) return a different shape.** A multipage
+         *     design has no formats — each page is one format row — so the response carries `pages` and
+         *     `elements_per_page` **instead of** `formats`, `elements` and `variables`. A client coded
+         *     against `formats[]` will not work on a multipage design, and because a dynamic image is
+         *     minted per format, a multipage design has no `dynamic_image_url` anywhere in the response
+         *     (it is a `static`-only feature in any case).
+         *
+         *     `pages[]` items are `DesignPage` objects, not formats: `id` (`page_1 … page_N`), `width`,
+         *     `height`, `unit` and `preview_url` — no format `uid`. `elements_per_page` is an **object
+         *     keyed by page id** (not an array), each value being that page's element list.
+         *
+         *     **The print settings are returned once, at the root** — `dpi`, `bleed_size` and
+         *     `safe_size` describe the document, not a page, because a multipage design has a single
+         *     print setup. That is the same reason the import declares them at the top level. A page
+         *     does not repeat them.
+         *
+         *     **Group layers require `?i=advanced`.** By default this endpoint returns its original
+         *     released shape, in which no group layer appears at all — its children are listed
+         *     individually and the group itself is invisible. Pass `i=advanced` to have them injected
+         *     (into `elements`, or into each page's list in `elements_per_page` on a multipage design).
+         *     Each one carries `layer_ids` (one list for the whole design — a group holds the same
+         *     children in every format), a per-format `layout`, its computed `hidden` / `locked`, and,
+         *     except on animated designs, a per-format `group` block of auto-layout settings
+         *     (`auto_layout` / `direction` / `placement` / `gap`).
+         *
+         *     A **masked** group — one whose members are clipped to a shape — is still `type: "group"`
+         *     and additionally carries `mask`, keyed by format. The geometry can differ per format, but
+         *     a group is masked in all of its formats or in none, so the presence of `mask` is what
+         *     distinguishes a masked group from a plain one.
+         *
+         *     The per-format read `GET /designs/{designId}/formats/{formatSpecifier}` is always the
+         *     advanced view and needs no parameter; there `layout`, `mask` and `group` are flattened to
+         *     the single format.
          */
         get: operations["getDesign"];
         put?: never;
@@ -61,6 +114,28 @@ export interface paths {
          * @description Retrieve detailed information for a specific format within a design, including
          *     dimensions, unit, preview URL, dynamic image URL, element layout, and variables.
          *     Useful for inspecting a single format before generating or building dynamic image URLs.
+         *
+         *     For printer designs the response additionally carries the format's print settings
+         *     read-only: `dpi` (integer render DPI computed at import time, capped at 300), and
+         *     `bleed_size` / `safe_size` (floats in the design's unit, `0` when the zone is off). All
+         *     three are always present on a printer format; a design with no stored print settings
+         *     reports the renderer's own defaults (`dpi: 300`, zones `0`).
+         *
+         *     For animated designs the response additionally carries the design's `animation`
+         *     object (`duration`, `screenshot_at_s` — seconds), per-element `animation`
+         *     timing/tween data, and video/audio media attributes — the same read surface as
+         *     `GET /designs/{designId}`.
+         *
+         *     **This endpoint is always the advanced view.** Unlike `GET /designs/{designId}`, it
+         *     needs no `i=advanced` parameter: it always returns the full property set and always
+         *     injects the format's `group` layers, flattened to this single format (`layout`, the
+         *     `group` block, and the computed `hidden` / `locked` are plain values, not keyed by
+         *     format name). A group that does not exist in the requested format is not emitted.
+         *
+         *     **Multipage print designs (`printer_multipage`):** a multipage design is one document —
+         *     it has **no formats**, and its pages are not addressable through this endpoint. Any
+         *     `formatSpecifier` yields `404` with `id: format_not_found`. Read the whole document with
+         *     `GET /designs/{designId}` or export it with `GET /designs/{designId}/as-import`.
          */
         get: operations["getDesignFormat"];
         put?: never;
@@ -82,7 +157,7 @@ export interface paths {
         put?: never;
         /**
          * Create a dynamic image URL
-         * @description Creates a dynamic image URL for a given design. Only one dynamic image is allowed per design. Subsequent calls return the existing dynamic image. Use `enable_rate_limit` in the request body to enable API rate limiting for this image & `enable_production_mode` to enable production mode (default is test mode).
+         * @description Creates a dynamic image URL for a given design (`static` designs only). Only one dynamic image is allowed per design — subsequent calls return the existing dynamic image (200 instead of 201). `enable_rate_limit` limits each visitor (IP + browser fingerprint) to 5 distinct variants per 24 h. `enable_production_mode` switches from test mode (variants saved to the workspace, server-side cache, 10 req/s per image) to production mode (built for scale: unlimited, unthrottled generation — only workspace credits and bandwidth apply; variants not saved, every request rendered fresh).
          */
         post: operations["createDynamicImageUrl"];
         delete?: never;
@@ -128,10 +203,34 @@ export interface paths {
          *     (text, images, colors) as element overrides in the request body and receive
          *     the generated file URL immediately in the response.
          *
+         *     **`static` designs only.** An `animated`, `printer` or `printer_multipage` design answers
+         *     `400` with `id: template_not_static` — use
+         *     [asynchronous generation](#tag/Asset-Generation/operation/generateMultiFormatMedia)
+         *     instead. This is a property of the endpoint, not of your plan: a video or a print PDF
+         *     cannot be produced inside a synchronous request, so there is no combination of parameters
+         *     that makes this work.
+         *
          *     Best for: real-time image generation, single-asset workflows, or when you need
-         *     the result inline without polling.
+         *     the result inline without polling. The rendering budget is hard-capped at **10
+         *     seconds**: the call returns the finished file within that window or fails with
+         *     `500 internal_server_error` (typical renders take tens of milliseconds).
          *
          *     For bulk generation across multiple formats, use the asynchronous endpoint instead.
+         *
+         *     **AI features and the 10-second cap.** `text_to_image` is **not accepted here** — an AI
+         *     generation takes far longer than the budget, so the field exists only on the asynchronous
+         *     endpoint and sending it answers `400 invalid_payload`. Background removal (`remove_bg`)
+         *     *is* accepted but is **deprecated on this endpoint**: it adds an AI round-trip before the
+         *     render, so a large or slow source image can push the call past the cap and fail with
+         *     `500 internal_server_error` rather than returning your asset. Existing integrations keep
+         *     working; new ones should remove backgrounds asynchronously. `auto_focus` is unaffected
+         *     and fully supported here — it runs on Abyssale's own detection model and is fast enough
+         *     that it does not put the budget at risk.
+         *
+         *     **All body fields are optional** — omit `elements` to render the design's saved
+         *     default content. A `template_format_name` that does not exist on the design answers
+         *     `404` with `id: format_not_found` (the format is addressed as a resource, so this is
+         *     a 404 by contract, not a 400).
          */
         post: operations["generateImage"];
         delete?: never;
@@ -150,19 +249,78 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Generate images/videos/PDFs asynchronously (multi-format)
+         * Generate multiple formats (asynchronous)
          * @description Asynchronously generate multiple formats of an image, video, GIF, HTML5 banner,
          *     or PDF in a single API call. Ideal for bulk banner production, multi-channel
          *     marketing campaigns, and programmatic ad creative generation at scale.
          *
          *     Specify one or more format IDs to generate, or omit the list to generate all
-         *     formats defined in the design. Provide a `callback_url` to receive a webhook
+         *     formats defined in the design. Batches are queued and worker-driven, with no hard
+         *     completion bound — most complete within a couple of minutes; rely on the webhook or
+         *     polling, never a fixed wait. Provide a `callback_url` to receive a webhook
          *     notification when generation is complete, or poll
          *     `GET /generation-request/{generationRequestId}` for status.
          *
          *     You can find available formats and elements by calling `GET /designs/{designId}`.
+         *
+         *     **This is where AI image work belongs.** Having no completion bound, this endpoint is the
+         *     only one that accepts `text_to_image` (AI generation and inpainting), and it is the
+         *     recommended home for `remove_bg` too — both add an AI round-trip that the synchronous
+         *     endpoint's 10-second cap cannot absorb.
+         *
+         *     **All body fields are optional** — omit `elements` to render the design's saved
+         *     default content, and omit `template_format_names` to generate every format. A
+         *     `template_format_names` entry that does not exist on the design answers `404` with
+         *     `id: format_not_found` (the format is addressed as a resource, so this is a 404 by
+         *     contract, not a 400).
          */
         post: operations["generateMultiFormatMedia"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Verify an API key
+         * @description Check that an API key is usable, and find out which workspace it belongs to.
+         *
+         *     This is the endpoint to call when you want to confirm a key works — it runs the whole
+         *     authentication path and answers `200` only if **all** of the following hold:
+         *
+         *     - the key exists,
+         *     - it is still active (a revoked key answers `401`),
+         *     - and, **for a workspace key**, the plan includes API access (`401 api_access_denied`
+         *       otherwise).
+         *
+         *     The plan check is skipped for a **user-scoped** key, which therefore answers `200` here
+         *     whatever the plan. That is not a loophole: a user key is confined to the plugin surface,
+         *     so a `200` from this endpoint means "this key is live", not "this key can generate". If
+         *     you need to know whether a key can drive the API, call a real endpoint with it.
+         *
+         *     Every failure is a **`401`**, whether the key is unknown, revoked, or on a plan without
+         *     API access. This endpoint does not answer `403`.
+         *
+         *     The response carries the workspace name, so a caller holding several keys can tell which
+         *     one it has. Integration platforms use it to label a connection.
+         *
+         *     > **Do not use `GET /ready` to test a key.** It is a service health check and is exempt
+         *     > from authentication, so it answers `200` regardless of the key you send — including one
+         *     > that has been revoked.
+         *
+         *     Takes no request body. It is a `POST` for historical reasons; live integrations depend on
+         *     the current shape, so it will not be changed.
+         */
+        post: operations["verifyApiKey"];
         delete?: never;
         options?: never;
         head?: never;
@@ -201,8 +359,9 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Export banners as ZIP archive (asynchronous)
-         * @description Asynchronously package a set of previously generated banners into a single ZIP
+         * Export generated assets as a ZIP archive (asynchronous)
+         * @description Asynchronously package a set of previously generated assets — any output type
+         *     (JPEG, PNG, WEBP, AVIF, PDF, MP4, GIF, HTML5 bundle) — into a single ZIP
          *     archive for download. Provide a `callback_url` to receive a webhook notification
          *     when the export is ready, containing the archive URL.
          */
@@ -288,6 +447,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/workspace-templates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List all workspace templates
+         * @description Retrieve the organisation-level master designs shared across your workspace.
+         *
+         *     A workspace template lives in a **category** (`category_id`), not a project — it
+         *     belongs to the organisation until you duplicate it into a project with
+         *     `POST /workspace-templates/{companyTemplateId}/use`. Designs, which do live in a
+         *     project, are listed by `GET /designs`; the two listings never overlap.
+         *
+         *     Items have the same shape as a design, except the grouping fields are named
+         *     `category_id` / `category_name`.
+         */
+        get: operations["listWorkspaceTemplates"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/workspace-template-categories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List workspace template categories
+         * @description The categories that group your workspace templates. Use an `id` from here as the
+         *     `category_id` filter on `GET /workspace-templates`.
+         *
+         *     This is the workspace-template counterpart of `GET /projects`, which groups designs.
+         */
+        get: operations["listWorkspaceTemplateCategories"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/workspace-templates/{companyTemplateId}/use": {
         parameters: {
             query?: never;
@@ -336,27 +546,221 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * @description **The error shape for this entire API.** Every failure, on every endpoint, at every
+         *     status, is this object — there is no second envelope to detect and no per-endpoint
+         *     variant. `id` and `message` are always present; `errors` appears only when there is
+         *     field-level detail to give.
+         * @example {
+         *       "id": "invalid_payload",
+         *       "message": "One or more request fields are invalid.",
+         *       "errors": [
+         *         {
+         *           "path": "formats[0].width",
+         *           "code": "out_of_range",
+         *           "message": "Must be greater than or equal to 1 and less than or equal to 5000.",
+         *           "expected": {
+         *             "min": 1,
+         *             "max": 5000
+         *           },
+         *           "received": 99999999
+         *         }
+         *       ]
+         *     }
+         */
         ErrorResponse: {
             /** @description Human-readable error message. */
             message: string;
             /**
-             * @description Machine-readable error code identifier. Present on most errors.
+             * @description Machine-readable error code. Branch on this rather than on `message`, which is prose
+             *     and may change. **Present on every error this API returns**, on every endpoint, at
+             *     every status — there is no second error shape to detect.
              *
-             *     Common values: `template_not_found`, `template_not_static`, `format_not_found`,
-             *     `cannot_build_banner`, `rate_limit_exceeded`, `unauthorized`, `api_access_denied`,
-             *     `endpoint_not_found`, `body_validation_errors`, `internal_server_error`.
+             *     When `errors` is present, `id` is the response-level code: the shared code if every
+             *     entry agrees, otherwise `invalid_payload`, meaning "read `errors`".
+             *
+             *     Codes are added over time. Treat one you do not recognise as generic and fall back to
+             *     `message`; that keeps a new code from being a breaking change.
+             *
+             *     This covers errors the generation pipeline raises downstream and this API relays:
+             *     they carry no code of their own, so one is derived (`format_not_found`,
+             *     `template_not_found`, `invalid_payload`, …) and a refusal that matches none of the
+             *     known cases is reported as `cannot_build_banner` rather than as a bare `message`.
+             *
+             *     Every value, as of this release. The list is generated from the API's code registry
+             *     and covered by a test, so it cannot drift — but it is a snapshot, not a closed enum:
+             *     treat an unrecognised code as generic rather than as a parse failure.
+             *
+             *     Grouped by **what you should do about it**, because that is the only thing that
+             *     changes your code. The grouping is guidance; the status line is what the response
+             *     actually carries, and a few codes appear twice because they genuinely mean two things.
+             *
+             *     **Fix the request, then send it again.** The payload, the parameters or the headers
+             *     were wrong: `invalid_payload`, `invalid_json`, `wrong_type`, `missing_required`,
+             *     `unknown_field`, `unknown_enum_value`, `unknown_format_key`, `out_of_range`,
+             *     `mutually_exclusive`, `conditional_dependency_missing`, `duplicate_format_name`,
+             *     `duplicate_layer_name`, `reserved_format_name`, `unsupported_for_type`,
+             *     `unknown_font`, `unreachable_src`, `invalid_query_param`, `invalid_filetype`,
+             *     `invalid_design_type`, `template_not_static`, `more_than_one_format`,
+             *     `missing_assets`, `not_round_trippable`, `unsupported_media_type`, `not_acceptable`,
+             *     `method_not_allowed`.
+             *
+             *     **Fix the identifier.** The request was well-formed, but named something that does
+             *     not exist or does not belong to this workspace: `template_not_found`,
+             *     `format_not_found`, `visual_not_found`, `generation_request_not_found`,
+             *     `duplication_request_not_found`, `workspace_template_not_found`, `project_not_found`,
+             *     `not_related_to_same_template`, `not_related_to_same_format`, `not_found`,
+             *     `endpoint_not_found`.
+             *
+             *     **Too late.** The job finished, but its result is no longer kept (7 days):
+             *     `generation_request_gone`, `duplication_request_gone`. Generate again, and store the
+             *     result this time rather than re-polling for it later.
+             *
+             *     **Back off, then retry.** These two are the only ones worth a retry loop:
+             *     `request_rate_limited`, `rate_limit_exceeded`.
+             *
+             *     **Retrying never helps — something has to change first.** The plan or the credit
+             *     balance: `feature_not_in_plan`, `api_access_denied`. Note that `rate_limit_exceeded`
+             *     lands here too when it means "not enough credits"; the message is what tells the two
+             *     apart, which is why both entries name it.
+             *
+             *     **Authenticate.** `unauthorized` for a missing, unknown or revoked key;
+             *     `api_access_denied` when the key is valid but the plan excludes API access. There is
+             *     no 403 in this API.
+             *
+             *     **The resource is in the wrong state for this call.** Read it back to find out which:
+             *     `template_import_already_processed`, `project_already_exists`, `template_not_active`.
+             *
+             *     **Valid request, unrenderable content.** The engine accepted the call and then
+             *     refused the artwork — most often text that cannot fit its layer:
+             *     `cannot_build_banner`, `image_fetching_error`.
+             *
+             *     **Ours, not yours.** Retry once; if it persists, send us the response:
+             *     `internal_error`, `internal_server_error`.
              */
-            id?: string;
+            id: string;
             /**
-             * @description Field-level validation errors, present on 400 responses when `message` is
-             *     `"Invalid parameters"`. Each entry identifies the failing field and the reason.
+             * @description Field-level detail. **Present only when there is some** — its absence means the error
+             *     is not about a particular field, not that detail was withheld. When present it is
+             *     always a non-empty FLAT array of problem objects; it is never an object, never null
+             *     and never empty.
+             *
+             *     Object keys are dotted and array indices bracketed (`formats[0].layers`,
+             *     `elements.root.background_color`), so one parser reads every API error.
+             *
+             *     This holds for detail produced downstream too: the generation engine reports its own
+             *     field errors in a different shape, and they are translated to this one before the
+             *     response is written.
+             *
+             *     Entries may carry keys beyond the three required ones (`expected`, `received`).
+             *     Ignore ones you do not recognise — more may be added.
              */
-            errors?: {
-                /** @description Dot-notation path to the invalid field (e.g. `elements.root.background_color`). */
-                field: string;
-                /** @description Human-readable reason the field failed validation. */
-                message: string;
-            }[];
+            errors?: components["schemas"]["Problem"][];
+            version?: components["schemas"]["ApiVersion"];
+        };
+        /**
+         * @description The API version that produced this response, named by release date (`vYYYY-MM-DD`).
+         *     Stamped as a top-level field on JSON object bodies, success and error alike, so a client
+         *     can always tell which contract answered. There is no version-selection parameter — a
+         *     single version is maintained at a time.
+         *
+         *     Two kinds of body are **not** stamped. Array bodies (the listings) carry no envelope. And
+         *     a body that already has a `version` key of its own is left alone — which in practice means
+         *     `Banner`, whose `version` is the generated file's integer counter. So `GET
+         *     /banners/{bannerId}` and the synchronous generate are the two responses that do not tell
+         *     you which contract answered.
+         *
+         *     The value changes when a new version is released. Match the `vYYYY-MM-DD` shape rather than
+         *     pinning today's literal, or your client breaks on the next release.
+         * @example v2026-08-17
+         */
+        ApiVersion: string;
+        /**
+         * @description One non-fatal note attached to an otherwise successful response — the `warnings` array on
+         *     `GET /designs/{designId}/as-import` and on the import status endpoint. Only `message` is
+         *     guaranteed: an entry with no `code` is informational and carries no stable machine
+         *     identity, so branch only on entries that have one.
+         *
+         *     Same field meanings as `Problem`; split from it because `code` is required there.
+         */
+        Warning: {
+            /** @description Human-readable explanation. */
+            message: string;
+            /**
+             * @description Stable, machine-readable code, when the warning has one. Absent on purely
+             *     informational entries.
+             * @example color_converted
+             */
+            code?: string;
+            /**
+             * @description Where in the payload the warning applies, same syntax as `Problem.path`.
+             * @example layers[2].properties.color
+             */
+            path?: string;
+            /**
+             * @description Name of the layer the entry belongs to, when it was raised while transforming a
+             *     layer. An index in `path` identifies a position in the emitted array, which is not
+             *     the name the caller sees in the editor — group on this rather than parsing `path`.
+             * @example headline
+             */
+            layer?: string;
+        };
+        /**
+         * @description One field-level error inside `ErrorResponse.errors`. `code` and `message` are always
+         *     present; `path` is omitted when the error is not about a particular field (an unhandled
+         *     `500`, for instance). Informational warnings are a DIFFERENT shape — see `Warning` —
+         *     because a warning may legitimately carry no `code`, and one schema cannot say
+         *     "required here, optional there".
+         */
+        Problem: {
+            /**
+             * @description Path into the request body where the problem applies. **Syntax (normative):** object
+             *     keys are dotted, array indices are bracketed — `formats[0].width`,
+             *     `pages[2].layers[7].layout.x`, `target.project_uuid`. A whole array/object is named
+             *     bare (`layers`, `pages`, `body`, `uploads`), as are the document-level
+             *     `printer_multipage` print settings (`unit`, `width`, `height`, `dpi`).
+             * @example layers[2].properties.font_size
+             */
+            path?: string;
+            /**
+             * @description Stable, machine-readable code. Agents should branch on `code`, not on `message`.
+             *
+             *     Payload/validation codes: `missing_required`, `unknown_field`, `wrong_type`,
+             *     `out_of_range`, `unknown_enum_value`, `unknown_format_key`, `duplicate_layer_name`,
+             *     `duplicate_format_name`, `reserved_format_name`, `project_not_found` (**400**),
+             *     `conditional_dependency_missing`, `invalid_payload`, `unsupported_for_type`,
+             *     `unknown_font`, `unreachable_src`, `mutually_exclusive` (two fields that cannot be
+             *     combined were both supplied).
+             *     Upload/lifecycle codes: `missing_assets`, `template_import_already_processed`,
+             *     `not_found` (**404** — the import does not exist for this company).
+             *     Export code: `not_round_trippable`.
+             *     Transport codes: `invalid_query_param` (an unparseable query-parameter value; `path`
+             *     is the parameter name), `internal_error` (an unhandled server-side error, returned in
+             *     this same envelope with a 500 status).
+             *     Build-phase failure codes (surfaced in the status response's `error`):
+             *     `text_fit_failed`, `image_processing_failed` (genuine image failures only),
+             *     `media_processing_failed` (a video/audio container could not be resolved or
+             *     processed), `invalid_asset` (an asset arrived but could not be decoded — truncated or
+             *     corrupt), `font_resolution_failed`, `import_failed` (fallback for a processing failure
+             *     with no more specific code).
+             * @example out_of_range
+             */
+            code: string;
+            /** @example font_size must be between 2 and 1000 */
+            message: string;
+            /**
+             * @description Type-dependent. For enums an array of allowed values; for ranges `{ min, max }`; for
+             *     `missing_assets` the list of unfulfilled upload targets. Present on `out_of_range` and
+             *     `unknown_enum_value` for schema-derived problems as well as hand-written ones.
+             */
+            expected?: string[] | {
+                min?: number;
+                max?: number;
+            } | string;
+            /** @description The offending value, echoed back as it arrived — any JSON type. Omitted when not meaningful. */
+            received?: string | number | boolean | {
+                [key: string]: unknown;
+            } | unknown[];
         };
         Banner: {
             /**
@@ -365,7 +769,9 @@ export interface components {
              */
             id: string;
             /**
-             * @description Version number of the generated file.
+             * @description Version number of the generated file — an integer counter, NOT the API version.
+             *     A banner response reports this counter; the `vYYYY-MM-DD` stamp other responses carry
+             *     never appears here.
              * @example 1
              */
             version?: number;
@@ -377,15 +783,46 @@ export interface components {
             sharing_id?: string;
             file: components["schemas"]["File"];
             format?: components["schemas"]["Format"];
-            template?: components["schemas"]["Design"];
+            /** @description The design this file was generated from. */
+            template?: components["schemas"]["DesignSummary"];
+            /** @description The design's project — present when the design has one. */
+            project?: {
+                /** Format: uuid */
+                id?: string;
+                name?: string;
+                created_at_ts?: number;
+            };
+            /**
+             * @deprecated
+             * @description Deprecated — same information as `file.type` / `file.url`.
+             */
+            image?: {
+                type?: string;
+                /** Format: uri */
+                url?: string;
+            };
+            /** @description Platform edit URL — only for visuals bookmarked or downloaded in the platform. */
+            edit_url?: string;
+            /** @description Platform view URL — only for visuals bookmarked or downloaded in the platform. */
+            view_url?: string;
+            /** @description Present when the visual carries a review status. */
+            visual_status?: {
+                status?: string;
+                status_updated_at_ts?: number;
+                reason?: string;
+                /** @description Review feedback — content the reviewer asked to be replaced. */
+                content_to_replace?: string;
+                /** @description Review feedback — content the reviewer asked to be hidden. */
+                content_to_hide?: string;
+            };
         };
         File: {
             /**
-             * @description File type
+             * @description File type. `webp` and `avif` are returned when `image_file_type` asked for them; an `html5` generation is delivered as `zip`.
              * @example jpeg
              * @enum {string}
              */
-            type: "jpeg" | "png" | "pdf" | "gif" | "mp4" | "webm" | "zip";
+            type: "jpeg" | "png" | "webp" | "avif" | "pdf" | "gif" | "mp4" | "zip";
             /**
              * @description URL of the banner (useful to download the image).
              * @example https://production-banners.s3.eu-west-1.amazonaws.com/demo/996739f4-b563-428a-a6e8-ec3cb8bd03d4.jpeg
@@ -401,20 +838,27 @@ export interface components {
              * @example 996739f4-b563-428a-a6e8-ec3cb8bd03d4.jpeg
              */
             filename?: string;
+            /** @description Backup JPEG URL — present only when `type` is `zip` (HTML5 output). */
+            fallback_image_url?: string;
         };
         Format: {
             /**
-             * @description Identifier/name of the format.
+             * @description Identifier/name of the format. Absent on multi-page print visuals.
              * @example facebook-post
              */
-            id: string;
+            id?: string;
             /**
-             * @description Width of the format.
+             * @description Unit of `width`/`height` — `px`, or `mm`/`in` on print designs.
+             * @example px
+             */
+            unit?: string;
+            /**
+             * @description Width of the format, in `unit`. A float on print designs (mm/in).
              * @example 1200
              */
             width: number;
             /**
-             * @description Height of the format.
+             * @description Height of the format, in `unit`. A float on print designs (mm/in).
              * @example 1200
              */
             height: number;
@@ -427,6 +871,12 @@ export interface components {
              */
             id: string;
             /**
+             * Format: uuid
+             * @description Deprecated duplicate of `id`, equal to it. Present on the single-design read; **not** emitted by the `GET /designs` listing. Kept for existing clients — read `id`.
+             * @example 64238d01-d402-474b-8c2d-fbc957e9d290
+             */
+            template_id?: string;
+            /**
              * @description Name of the design.
              * @example Ad campaign fall 2025
              */
@@ -436,7 +886,7 @@ export interface components {
              * @example static
              * @enum {string}
              */
-            type: "static" | "animated" | "printer" | "printer_multipage";
+            type: "static" | "printer" | "animated" | "printer_multipage";
             /**
              * @description Timestamp of when the design has been created.
              * @example 1649942114
@@ -448,8 +898,139 @@ export interface components {
              */
             updated_at: number;
             /**
-             * @description Design Category
+             * Format: uuid
+             * @description Unique identifier (UUID) of the project the design belongs to. `null` when the project cannot be resolved.
+             * @example 9d1f2b7c-5a44-4c3e-9f21-0b8e6d4a1c73
+             */
+            project_id: string | null;
+            /**
+             * @description Name of the project the design belongs to. `null` when the project cannot be resolved.
              * @example Fall campaigns
+             */
+            project_name: string | null;
+            /**
+             * Format: uuid
+             * @deprecated
+             * @description Deprecated, superseded by `project_id`, and always equal to it on a design. `category_id` properly names the grouping of a WORKSPACE TEMPLATE — a design belongs to a project, so read `project_id`.
+             * @example 9d1f2b7c-5a44-4c3e-9f21-0b8e6d4a1c73
+             */
+            category_id?: string | null;
+            /**
+             * @deprecated
+             * @description Deprecated, superseded by `project_name`. On the `GET /designs` listing it mirrors `project_name`; on a single-design read it is whatever the platform stored on the row and may be `null` or differ. `category_*` names the grouping of a WORKSPACE TEMPLATE — a design belongs to a project, so read `project_name`.
+             * @example Fall campaigns
+             */
+            category_name?: string | null;
+            version?: components["schemas"]["ApiVersion"] & unknown;
+        };
+        /**
+         * @description A workspace template — an organisation-level master design. Same underlying object
+         *     as a Design, but grouped into a *category* rather than a *project*, and not
+         *     addressable through the Designs API until duplicated into a project.
+         */
+        WorkspaceTemplate: {
+            /**
+             * Format: uuid
+             * @description Unique identifier (UUID) of the workspace template.
+             * @example 64238d01-d402-474b-8c2d-fbc957e9d290
+             */
+            id: string;
+            /**
+             * @description Name of the workspace template.
+             * @example Brand master
+             */
+            name: string;
+            /**
+             * @description Type of the workspace template
+             * @example static
+             * @enum {string}
+             */
+            type: "static" | "printer" | "animated" | "printer_multipage";
+            /**
+             * @description Timestamp of when the workspace template has been created.
+             * @example 1649942114
+             */
+            created_at: number;
+            /**
+             * @description Timestamp of when the workspace template has been updated for the last time.
+             * @example 1649942114
+             */
+            updated_at: number;
+            /**
+             * Format: uri
+             * @description Preview Image URL of the first format
+             */
+            preview_url?: string;
+            /**
+             * Format: uuid
+             * @description Unique identifier (UUID) of the workspace category it belongs to, or `null` when the
+             *     template sits at the root of the workspace. Unlike a design's project, a category is
+             *     **optional** — most workspace templates have none.
+             * @example 1c7a9e35-0b62-4d18-8f4a-2e5c7b90d146
+             */
+            category_id?: string | null;
+            /**
+             * @description Name of the workspace category, or `null` when the template is at the root.
+             * @example Brand assets
+             */
+            category_name?: string | null;
+        };
+        WorkspaceTemplateCategory: {
+            /**
+             * Format: uuid
+             * @description Unique identifier (UUID) of the workspace category.
+             * @example 1c7a9e35-0b62-4d18-8f4a-2e5c7b90d146
+             */
+            id: string;
+            /**
+             * @description Name of the workspace category.
+             * @example Brand assets
+             */
+            name: string;
+            /**
+             * @description Display colour of the category.
+             * @example #4F46E5
+             */
+            color?: string;
+            /**
+             * @description Display icon of the category.
+             * @example star
+             */
+            icon?: string;
+            /**
+             * @description Timestamp of when the category has been created.
+             * @example 1649942114
+             */
+            created_at?: number;
+        };
+        /** @description A short reference to a design, nested inside another resource. Deliberately narrower than `Design` — only the fields the parent resource carries. */
+        DesignSummary: {
+            /**
+             * Format: uuid
+             * @description Unique identifier (UUID) of the design.
+             * @example 64238d01-d402-474b-8c2d-fbc957e9d290
+             */
+            id: string;
+            /**
+             * @description Name of the design.
+             * @example Ad campaign fall 2025
+             */
+            name: string;
+            /** @example 1649942114 */
+            created_at?: number;
+            /** @example 1649942114 */
+            updated_at?: number;
+        };
+        /** @description The design a format belongs to, as returned nested in `GET /designs/{designId}/formats/{formatSpecifier}`. */
+        DesignFormatSummary: components["schemas"]["DesignSummary"] & {
+            /**
+             * @example static
+             * @enum {string}
+             */
+            type?: "static" | "printer" | "animated" | "printer_multipage";
+            /**
+             * @deprecated
+             * @description Deprecated alias of the project name — see `Design.category_name`.
              */
             category_name?: string | null;
         };
@@ -492,6 +1073,76 @@ export interface components {
              * @example https://img.abyssale.com/ecf1fe8c-5392-48c2-b6d2-665183a18fe5/9b57d65e-eb2c-4a74-a51e-4482917c248a
              */
             dynamic_image_url?: string;
+            /**
+             * @description Printer designs only. Render DPI of the format, computed at import time (capped at 300; large formats degrade to stay within the renderer's pixel budget). Read-only — not an import field.
+             * @example 300
+             */
+            dpi?: number;
+            /**
+             * @description Printer designs only. Bleed size as a float in the design's unit (mm/in). Always present on a printer format; `0` means the zone is off.
+             * @example 3.5
+             */
+            bleed_size?: number;
+            /**
+             * @description Printer designs only. Safe-zone size as a float in the design's unit (mm/in). Always present on a printer format; `0` means the zone is off.
+             * @example 5
+             */
+            safe_size?: number;
+        };
+        /**
+         * @description One page of a `printer_multipage` design, as returned in `pages[]`.
+         *
+         *     Deliberately **not** `DesignFormat`. A multipage design is one document with no formats —
+         *     each page is addressed by `id` (`page_1 … page_N`), has no format `uid`, and cannot carry
+         *     a dynamic image, so `GET /designs/{designId}/formats/{formatSpecifier}` answers
+         *     `404 format_not_found` for every specifier.
+         *
+         *     **A page carries no print settings.** `dpi`, `bleed_size` and `safe_size` belong to the
+         *     document and are returned once, at the root of the design read. `width` / `height` /
+         *     `unit` appear here because a page is a thing with dimensions, but every page of the
+         *     document has the same ones.
+         */
+        DesignPage: {
+            /**
+             * @description Page identifier, `page_1 … page_N`, in document order.
+             * @example page_1
+             */
+            id: string;
+            /**
+             * @description Page width as a float in `unit`. Every page of the document shares it.
+             * @example 210
+             */
+            width: number;
+            /**
+             * @description Page height as a float in `unit`. Every page of the document shares it.
+             * @example 297
+             */
+            height: number;
+            /**
+             * @description The document's physical authoring unit.
+             * @example mm
+             * @enum {string}
+             */
+            unit?: "mm" | "in";
+            /**
+             * Format: uri
+             * @description Preview image URL of this page.
+             */
+            preview_url?: string;
+        };
+        /** @description Animated designs only. The design's timeline, read-only (all values in seconds). */
+        DesignAnimation: {
+            /**
+             * @description Timeline length in seconds.
+             * @example 8
+             */
+            duration?: number | null;
+            /**
+             * @description The moment the HTML5 backup screenshot is taken (seconds). Null on designs created before it was recorded
+             *     that never stored it; always set on imported designs.
+             * @example 8
+             */
+            screenshot_at_s?: number | null;
         };
         DesignElement: {
             /**
@@ -500,11 +1151,61 @@ export interface components {
              */
             name: string;
             /**
-             * @description Layer type
+             * @description Layer type. `group` elements are injected only on the platform advanced view (`i=advanced`); a masked group reports `group` too, with a `mask` block.
              * @example text
              * @enum {string}
              */
-            type: "container" | "text" | "button" | "image" | "logo" | "shape" | "illustration" | "rating" | "qrcode" | "chart" | "video" | "audio";
+            type: "container" | "text" | "button" | "image" | "logo" | "shape" | "illustration" | "rating" | "qrcode" | "video" | "audio" | "group";
+            /** @description The element's box, **keyed by format name**. */
+            layout?: {
+                [key: string]: components["schemas"]["ElementLayout"];
+            };
+            /** @description `group` layers only — the names of the layers this group contains. */
+            layer_ids?: string[];
+            /** @description `group` layers only — computed visibility, keyed by format name. */
+            hidden?: {
+                [key: string]: boolean;
+            };
+            /** @description `group` layers only — computed lock state, keyed by format name. */
+            locked?: {
+                [key: string]: boolean;
+            };
+            /** @description `group` layers only — auto-layout settings, keyed by format name. */
+            group?: {
+                [key: string]: components["schemas"]["GroupLayout"];
+            };
+            /** @description Masked `group` layers only — the mask geometry, keyed by format name. Presence is a layer-level fact: a layer is a masked group in every format or in none. */
+            mask?: {
+                [key: string]: components["schemas"]["GroupMask"];
+            };
+            /**
+             * @description Animated designs only; present when the element carries timeline timing or tweens.
+             *     An injected `group` layer carries `start_at_s` / `end_at_s` only — never `tweens`.
+             */
+            animation?: {
+                /** @example 0.79 */
+                start_at_s?: number | null;
+                /** @example 8 */
+                end_at_s?: number | null;
+                tweens?: {
+                    /** @example tb-text_0-slide_2 */
+                    id?: string;
+                    /** @enum {string} */
+                    type?: "slide" | "fade" | "scale" | "rotate" | "audioFade" | "textEffect";
+                    keyframes?: ({
+                        /** @example opacity */
+                        attr?: string;
+                        data?: {
+                            /** @example start */
+                            type?: string;
+                            /** @example 0 */
+                            time?: number;
+                        };
+                    } & {
+                        [key: string]: unknown;
+                    })[];
+                }[];
+            };
             /** @description List of all attributes */
             attributes: {
                 /**
@@ -516,16 +1217,200 @@ export interface components {
                  * @description An helper to understand what is this attribute
                  * @example Text content (i.e. Lorem ipsum)
                  */
-                help: string;
+                help?: string;
                 /**
                  * @example {
                  *       "facebook-post": "My image title"
                  *     }
                  */
                 values: {
-                    [key: string]: string;
+                    [key: string]: string | number | boolean;
                 };
             }[];
+        };
+        /** @description An element's box. Integers in pixels on `static`/`animated`; floats in the design's physical unit (mm/in) on `printer`. */
+        ElementLayout: {
+            /** @example 0 */
+            x?: number;
+            /** @example 0 */
+            y?: number;
+            /** @example 3333 */
+            width?: number;
+            /** @example 666 */
+            height?: number;
+        };
+        /** @description Auto-layout settings of a `group` layer. **Empty on animated designs** — the platform stores no auto-layout there. `direction`, `placement` and `gap` appear only when `auto_layout` is on. */
+        GroupLayout: {
+            auto_layout?: boolean;
+            direction?: string;
+            placement?: string;
+            /** @description Pixels on static/animated; a physical-unit float on printer. */
+            gap?: number;
+        };
+        /** @description Mask geometry of a masked `group` layer. */
+        GroupMask: {
+            shape: string;
+            width?: number;
+            height?: number;
+            center_x?: number;
+            center_y?: number;
+            rx?: number;
+            ry?: number;
+            rotation?: number;
+            radius?: number | {
+                tl?: number;
+                tr?: number;
+                br?: number;
+                bl?: number;
+            };
+        };
+        /** @description Animated designs only — the element's own timeline window, in seconds. */
+        ElementAnimationTiming: {
+            start_at_s?: number | null;
+            end_at_s?: number | null;
+        };
+        /**
+         * @description One element of a `printer_multipage` page, as returned in `elements_per_page`.
+         *
+         *     A page is a single format, so the per-format maps are collapsed exactly as they are on
+         *     `GET /designs/{designId}/formats/{formatSpecifier}`: `layout` is that page's box and an
+         *     attribute carries one `value`, not `values` keyed by format name.
+         *
+         *     **`attributes` is an object here, keyed by attribute id — every other read returns an
+         *     array.** That is the one difference from `DesignFormatElement`, which this schema
+         *     otherwise matches field for field. It is an inconsistency, not a feature: the two
+         *     single-format reads convert the platform's attribute map into an array and this path does
+         *     not. It is documented rather than corrected because the current shape is live and in use.
+         *     Expect it to be unified with `DesignFormatElement` in a future dated version, announced
+         *     in the changelog — write your attribute lookup so it can tolerate both, e.g. by
+         *     normalising with `Object.values(attributes)` / `list(attributes.values())` when it is not
+         *     already an array.
+         */
+        DesignPageElement: {
+            /**
+             * @description Layer name (`root` is the special element carrying the page background color).
+             * @example headline
+             */
+            name: string;
+            /**
+             * @description Layer type. Narrower than the other reads: a page belongs to a print document, so `video` and `audio` — which exist only on `animated` designs — never appear here. `group` elements are injected only on the advanced view (`i=advanced`).
+             * @example text
+             * @enum {string}
+             */
+            type: "container" | "text" | "button" | "image" | "logo" | "shape" | "illustration" | "rating" | "qrcode" | "group";
+            settings?: {
+                /** @example false */
+                is_mandatory?: boolean;
+            };
+            /**
+             * @description The element's customisable attributes, **keyed by attribute id**. Each value carries
+             *     that attribute's `id`, an optional `help` string, and its single `value` on this page.
+             * @example {
+             *       "payload": {
+             *         "id": "payload",
+             *         "help": "Text content",
+             *         "value": "Spring Catalogue"
+             *       },
+             *       "font_size": {
+             *         "id": "font_size",
+             *         "help": "Font size in pt",
+             *         "value": 36
+             *       }
+             *     }
+             */
+            attributes?: {
+                [key: string]: {
+                    /** @example payload */
+                    id?: string;
+                    /** @example Text content (i.e. Lorem ipsum) */
+                    help?: string;
+                    /** @example Spring Catalogue */
+                    value?: string | number | boolean;
+                };
+            };
+            /** @description The element's box on this page, in the document's unit. */
+            layout?: components["schemas"]["ElementLayout"];
+            /** @description `group` layers only — the names of the layers this group contains. */
+            layer_ids?: string[];
+            /** @description `group` layers only — computed visibility on this page. */
+            hidden?: boolean;
+            /** @description `group` layers only — computed lock state on this page. */
+            locked?: boolean;
+            /** @description `group` layers only — auto-layout settings on this page. */
+            group?: components["schemas"]["GroupLayout"];
+            /** @description Masked `group` layers only — the mask geometry on this page. */
+            mask?: components["schemas"]["GroupMask"];
+        };
+        /**
+         * @description An element as `GET /designs/{designId}/formats/{formatSpecifier}` returns it — the
+         *     **single-format projection** of `DesignElement`.
+         *
+         *     The endpoint answers for one format, so the per-format maps are collapsed: an attribute
+         *     carries a single `value` instead of `values` keyed by format name, and `layout` is that
+         *     format's box instead of a map. This is deliberate, not drift — do not "align" it with
+         *     `DesignElement`. An attribute the requested format does not define is omitted entirely.
+         */
+        DesignFormatElement: {
+            /**
+             * @description Layer name (`root` is a special element that allows to customize the image background color.)
+             * @example root
+             */
+            name: string;
+            /**
+             * @description Layer type
+             * @example container
+             * @enum {string}
+             */
+            type: "container" | "text" | "button" | "image" | "logo" | "shape" | "illustration" | "rating" | "qrcode" | "video" | "audio" | "group";
+            settings?: {
+                /**
+                 * @description Whether the element is mandatory
+                 * @example false
+                 */
+                is_mandatory?: boolean;
+            };
+            attributes?: {
+                /**
+                 * @description Attribute identifier
+                 * @example background_color
+                 */
+                id?: string;
+                /**
+                 * @description Help text for the attribute
+                 * @example 6 or 8 digits hexadecimal background color (i.e. #F3F3F3) of the banner
+                 */
+                help?: string;
+                /**
+                 * @description The attribute's value in the requested format. Usually a string; a `video`/`audio` layer's media attributes are typed (`video_duration`/`max_volume` numbers, `video_muted`/`audio_muted` booleans).
+                 * @example #FFFFFF
+                 */
+                value?: string | number | boolean;
+            }[];
+            /** @description The element's box in the requested format. */
+            layout?: components["schemas"]["ElementLayout"];
+            /** @description `group` layers only — the names of the layers this group contains. */
+            layer_ids?: string[];
+            /** @description `group` layers only — computed visibility in this format. */
+            hidden?: boolean;
+            /** @description `group` layers only — computed lock state in this format. */
+            locked?: boolean;
+            /** @description `group` layers only — auto-layout settings in this format. */
+            group?: components["schemas"]["GroupLayout"];
+            /** @description Masked `group` layers only — the mask geometry in this format. */
+            mask?: components["schemas"]["GroupMask"];
+            /** @description `group` layers on animated designs only. */
+            animation?: components["schemas"]["ElementAnimationTiming"];
+        };
+        /**
+         * @description Variables used within the text layers of the design. Keys are variable names (without
+         *     braces), values are the placeholder as written in the design (e.g. `"{name}"`).
+         * @example {
+         *       "name": "{name}",
+         *       "title": "{title}"
+         *     }
+         */
+        DesignVariables: {
+            [key: string]: string;
         };
         Font: {
             /**
@@ -549,7 +1434,8 @@ export interface components {
         RootElement: {
             background_color?: components["schemas"]["backgroundColor"];
         };
-        Element: {
+        /** @description Properties every layer type accepts, whatever its type. Composed into `Element` and `AsyncElement` with `allOf` so they survive the per-type `anyOf` — declared as a sibling of `anyOf` they would be dropped from every branch. */
+        SharedElementProperties: {
             /** @description `true`, `false`. If true it hides the current element */
             hidden?: boolean;
             /** @description 6-8 digits hexadecimal color */
@@ -560,14 +1446,17 @@ export interface components {
             shadow_offset_x?: number;
             /** @description Vertical offset in pixels (can be negative) */
             shadow_offset_y?: number;
-        } & (components["schemas"]["TextElement"] | components["schemas"]["ImageElement"] | components["schemas"]["ButtonElement"] | components["schemas"]["LogoElement"] | components["schemas"]["ShapeElement"] | components["schemas"]["RatingElement"] | components["schemas"]["IllustrationElement"] | components["schemas"]["QRCodeElement"] | components["schemas"]["VideoElement"] | components["schemas"]["AudioElement"]);
+        };
+        Element: components["schemas"]["SharedElementProperties"] & (components["schemas"]["TextElement"] | components["schemas"]["ImageElement"] | components["schemas"]["ButtonElement"] | components["schemas"]["LogoElement"] | components["schemas"]["ShapeElement"] | components["schemas"]["RatingElement"] | components["schemas"]["IllustrationElement"] | components["schemas"]["QRCodeElement"] | components["schemas"]["VideoElement"] | components["schemas"]["AudioElement"]);
+        /** @description Same as `Element`, but its image element also exposes AI generation properties (`text_to_image`, inpainting, background removal model) that are only available for asynchronous generation. */
+        AsyncElement: components["schemas"]["SharedElementProperties"] & (components["schemas"]["TextElement"] | components["schemas"]["AsyncImageElement"] | components["schemas"]["ButtonElement"] | components["schemas"]["LogoElement"] | components["schemas"]["ShapeElement"] | components["schemas"]["RatingElement"] | components["schemas"]["IllustrationElement"] | components["schemas"]["QRCodeElement"] | components["schemas"]["VideoElement"] | components["schemas"]["AudioElement"]);
         TextElement: {
             payload?: components["schemas"]["payload"];
             color?: components["schemas"]["color"];
             background_color?: components["schemas"]["backgroundColor"];
             background_padding?: components["schemas"]["backgroundPadding"];
             font_size?: components["schemas"]["fontSize"];
-            font?: components["schemas"]["font"];
+            font?: components["schemas"]["fontId"];
             font_weight?: components["schemas"]["fontWeight"];
             line_height?: components["schemas"]["lineHeight"];
             skew_y?: components["schemas"]["skewY"];
@@ -602,31 +1491,100 @@ export interface components {
             side_border_offset?: number;
             /** @description Extends the length of the border beyond the text bounding box by the specified number of pixels. Default is 0. */
             side_border_spread?: number;
-            /**
-             * @description Key-value pairs used to replace variables within the text payload.
-             *     Variables are defined in the design as `{variableName}` placeholders.
-             *     Pass the variable name (without braces) as the key and the replacement value as the value.
-             * @example {
-             *       "username": "Alice",
-             *       "title": "Spring Sale"
-             *     }
-             */
-            vars?: {
-                [key: string]: string;
-            };
         };
         ButtonElement: {
-            payload?: components["schemas"]["payload"];
+            payload?: components["schemas"]["buttonPayload"];
             color?: components["schemas"]["color"];
             background_color?: components["schemas"]["backgroundColor"];
             background_padding?: components["schemas"]["backgroundPadding"];
             font_size?: components["schemas"]["fontSize"];
-            font?: components["schemas"]["font"];
+            font?: components["schemas"]["fontId"];
             font_weight?: components["schemas"]["fontWeight"];
             line_height?: components["schemas"]["lineHeight"];
             text_transform?: components["schemas"]["textTransform"];
+            /** @description Placement of the **button box** — not of its label. A button keeps the two apart: this moves the box, `text_align` moves the label inside it. */
+            alignment?: components["schemas"]["alignment"];
+            /**
+             * @description Alignment of the **label** inside the button box. Default `center`. A button is the one layer type where these are two separate settings — on a `text` layer the alignment *is* the position.
+             * @enum {string}
+             */
+            text_align?: "left" | "center" | "right";
+            stroke_color?: components["schemas"]["strokeColor"];
+            stroke_width?: components["schemas"]["strokeWidth"];
+            /** @description Minimum font size allowed when `auto_resize` is enabled. */
+            min_font_size?: number;
+            /** @description Automatically adjusts the label size to fit the button. When true, `min_font_size` must also be defined. */
+            auto_resize?: boolean;
         };
         ImageElement: {
+            image_url?: components["schemas"]["imageUrl"];
+            image_encoded?: components["schemas"]["imageEncoded"];
+            opacity?: components["schemas"]["opacity"];
+            fitting_type?: components["schemas"]["fittingType"];
+            alignment?: components["schemas"]["alignment"];
+            mask_name?: components["schemas"]["maskName"];
+            mask_properties?: components["schemas"]["maskProperties"];
+            filter_name?: components["schemas"]["filterName"];
+            filter_properties?: components["schemas"]["filterProperties"];
+            overlay_direction?: components["schemas"]["overlayDirection"];
+            overlay_color_1?: components["schemas"]["overlayColor1"];
+            overlay_color_2?: components["schemas"]["overlayColor2"];
+            /**
+             * @deprecated
+             * @description Activates AI background removal when set to true.
+             *
+             *     **Deprecated on this endpoint, and not recommended.** It works and existing
+             *     integrations keep working, but removing a background is an extra AI round-trip on
+             *     top of the render, and this endpoint is hard-capped at 10 seconds — a large or slow
+             *     source image can push the whole call past the cap and fail with
+             *     `500 internal_server_error` instead of returning your asset. Use asynchronous
+             *     generation, which has no such bound.
+             */
+            remove_bg?: boolean;
+            /**
+             * @deprecated
+             * @description Additional settings for background removal. Deprecated here for the same reason as `remove_bg`.
+             */
+            remove_bg_properties?: {
+                /** @description Trims the edges of the image after background removal. Default is false. */
+                remove_bg_crop?: boolean;
+            };
+            /** @description Activates AI-powered auto-focus to detect and focus on specified objects or people within the image. */
+            auto_focus?: boolean;
+            /** @description Additional settings for auto-focus. */
+            auto_focus_properties?: {
+                /**
+                 * @description Model used for focusing. `generic` for objects, `people` for human subjects.
+                 *     Default is `generic`.
+                 *
+                 *     **`face` is deprecated** — use `people` with `focus_framing: "face"`, which
+                 *     detects faces with the same model and additionally honours `focus_zoom` and
+                 *     `focus_target`. `face` ignores all three. `face` keeps working; no removal date
+                 *     is set.
+                 * @enum {string}
+                 */
+                model?: "generic" | "people" | "face";
+                /** @description List of object labels to focus on (generic model only). Uses Open Images Dataset labels. */
+                focus_objects?: string[];
+                /**
+                 * @description Specific to `people` model. Defines which part of the subject to frame. Default is `face`, which is why `people` alone replaces the deprecated `face` model.
+                 * @enum {string}
+                 */
+                focus_framing?: "face" | "head" | "shoulders" | "full_body";
+                /**
+                 * @description Specific to `people` model. Controls the zoom level applied. Default is `max`.
+                 * @enum {string}
+                 */
+                focus_zoom?: "off" | "low" | "medium" | "max";
+                /**
+                 * @description Specific to `people` model. When multiple subjects are detected, defines which one to target. Default is `all`.
+                 * @enum {string}
+                 */
+                focus_target?: "largest" | "left" | "middle" | "right" | "all";
+            };
+        };
+        /** @description Image element properties available for asynchronous generation, including AI image generation, inpainting, and background removal model selection. */
+        AsyncImageElement: {
             image_url?: components["schemas"]["imageUrl"];
             image_encoded?: components["schemas"]["imageEncoded"];
             opacity?: components["schemas"]["opacity"];
@@ -645,20 +1603,31 @@ export interface components {
             remove_bg_properties?: {
                 /** @description Trims the edges of the image after background removal. Default is false. */
                 remove_bg_crop?: boolean;
+                /**
+                 * @description Background removal model to use. Default is `bria-rmbg-2-0`.
+                 * @enum {string}
+                 */
+                model?: "bria-rmbg-2-0" | "birefnet" | "pixelcut" | "imageUtils" | "ideogram";
             };
             /** @description Activates AI-powered auto-focus to detect and focus on specified objects or people within the image. */
             auto_focus?: boolean;
             /** @description Additional settings for auto-focus. */
             auto_focus_properties?: {
                 /**
-                 * @description Model used for focusing. `generic` for objects, `people` for human subjects, `face` for face detection. Default is `generic`.
+                 * @description Model used for focusing. `generic` for objects, `people` for human subjects.
+                 *     Default is `generic`.
+                 *
+                 *     **`face` is deprecated** — use `people` with `focus_framing: "face"`, which
+                 *     detects faces with the same model and additionally honours `focus_zoom` and
+                 *     `focus_target`. `face` ignores all three. `face` keeps working; no removal date
+                 *     is set.
                  * @enum {string}
                  */
                 model?: "generic" | "people" | "face";
                 /** @description List of object labels to focus on (generic model only). Uses Open Images Dataset labels. */
                 focus_objects?: string[];
                 /**
-                 * @description Specific to `people` model. Defines which part of the subject to frame.
+                 * @description Specific to `people` model. Defines which part of the subject to frame. Default is `face`, which is why `people` alone replaces the deprecated `face` model.
                  * @enum {string}
                  */
                 focus_framing?: "face" | "head" | "shoulders" | "full_body";
@@ -674,11 +1643,44 @@ export interface components {
                 focus_target?: "largest" | "left" | "middle" | "right" | "all";
             };
             /**
-             * @description AI-generated image from a text prompt. Only available for asynchronous generation.
+             * @description Activates AI image generation (text-to-image) or AI-assisted image editing (inpainting).
              *     If `image_url` (except default image) or `image_encoded` is provided, this property is ignored.
+             *
+             *     `true` uses `text_to_image_properties`. As a shorthand you may instead pass the prompt
+             *     **as a string** — optionally `"prompt,url1[,url2]"` to supply inpainting sources — which
+             *     is expanded into `text_to_image_properties` before validation.
+             */
+            text_to_image?: boolean | string;
+            text_to_image_properties?: components["schemas"]["TextToImageProperties"];
+        };
+        /** @description Settings for AI image generation or inpainting. */
+        TextToImageProperties: {
+            /**
+             * @description Description of the image to generate, or of the edit to apply when `inpaint_images` is provided. **At least 3 whitespace-separated words** — a shorter prompt is rejected.
              * @example A sleek, modern glass villa situated in the middle of a minimalist lavender field.
              */
-            text_to_image?: string;
+            prompt: string;
+            /**
+             * @description Model used for generation. Default is `nano-banana-2`.
+             *     Allowed `ratio` and `quality` values depend on the selected model — see the
+             *     [Text to Image & Inpainting guide](https://developers.abyssale.com/rest-api/generation/element-properties/image#text-to-image-inpainting) for the full table.
+             * @enum {string}
+             */
+            model?: "gemini-3-pro" | "gemini-2.5-flash" | "gemini-3.1-flash" | "kling-image-o3" | "wan-2.7" | "gpt-image-1.5" | "flux-2-pro" | "qwen-2511" | "nano-banana" | "nano-banana-2" | "nano-banana-pro" | "seedream-4.5" | "gpt-image-2" | "grok-imagine" | "flux-2-klein-9b";
+            /**
+             * @description Aspect ratio or size of the output (e.g. `16:9`, `square_hd`, `1024x1024`).
+             *     Allowed values depend on the selected `model` — see the
+             *     [Text to Image & Inpainting guide](https://developers.abyssale.com/rest-api/generation/element-properties/image#text-to-image-inpainting).
+             */
+            ratio?: string;
+            /**
+             * @description Output quality/resolution (e.g. `1K`, `high`). Only supported by some models — see the
+             *     [Text to Image & Inpainting guide](https://developers.abyssale.com/rest-api/generation/element-properties/image#text-to-image-inpainting).
+             *     Ignored if the selected model does not support it.
+             */
+            quality?: string;
+            /** @description URL(s) of the image(s) to edit. When provided, switches generation to inpainting mode instead of pure text-to-image. */
+            inpaint_images?: string[];
         };
         LogoElement: {
             image_url?: components["schemas"]["imageUrl"];
@@ -689,7 +1691,7 @@ export interface components {
             background_color?: components["schemas"]["backgroundColor"];
             pattern_name?: components["schemas"]["patternName"];
             pattern_color?: components["schemas"]["patternColor"];
-            stroke_width?: components["schemas"]["strokeWidth"];
+            stroke_width?: components["schemas"]["shapeStrokeWidth"];
             stroke_color?: components["schemas"]["strokeColor"];
         };
         RatingElement: {
@@ -716,6 +1718,11 @@ export interface components {
         /** @description This element is only available for animated design */
         VideoElement: {
             video_url?: components["schemas"]["videoUrl"];
+            /**
+             * @description Mute the video's audio track. `1` mutes it, `0` keeps it; values in between scale it. Default `0`. **A number, not a boolean** — `true`/`false` answer `400 invalid_payload`. The import spells this `muted` and takes a boolean; a design read returns `video_muted` / `audio_muted`, also booleans.
+             * @example 1
+             */
+            audio_muted?: number;
         };
         /** @description Audio layer element. Only available for animated designs with MP4 output. */
         AudioElement: {
@@ -723,11 +1730,13 @@ export interface components {
              * Format: uri
              * @description **HTTP(s) URL of the audio file.**
              *
-             *     It must be a publicly accessible link with a filesize of 30 MB maximum.
+             *     It must be a publicly accessible link with a filesize of 25 MB maximum.
              *
              *     Supported files: mp3, wav
              */
             audio_url?: string;
+            /** @description **Base64-encoded audio**, as a data URI or raw base64. Ignored when `audio_url` is given. Same 25 MB ceiling. */
+            audio_encoded?: string;
             /**
              * @description Volume level. 1 = default volume, 0.5 = half volume, 0 = silent. Default is 1.
              * @example 1
@@ -739,15 +1748,51 @@ export interface components {
              */
             speed?: number;
         };
-        /** @description A `dictionary` containing all elements with properties you would like to override form the default design (keys correspond to layer names) */
+        /**
+         * @description A `dictionary` containing all elements with properties you would like to override from
+         *     the default design (keys correspond to layer names). The reserved key `vars` is not a
+         *     layer: it carries the design-wide text variable values.
+         *
+         *     **Unknown names are accepted, not rejected — and this is the one thing to know before
+         *     you generate this object programmatically.** The API does not check element names or
+         *     property names against the design: a key naming a layer that does not exist, or a
+         *     property that layer does not have, passes validation and simply does not change the
+         *     output. There is no error and no warning, so a typo shows up as an asset that renders
+         *     with the design's saved content instead of yours.
+         *
+         *     This leniency is deliberate and long-standing — live integrations depend on it, so it
+         *     will not be tightened. Two consequences worth designing for:
+         *
+         *     - **Check names against `GET /designs/{designId}`** rather than against a `400`. That
+         *       response lists every element and every attribute it accepts.
+         *     - **Offline schema validation cannot help either.** The branches below overlap by design
+         *       (an element payload carries no type field — the layer's type comes from the design), so
+         *       a generic JSON-Schema validator accepts any object here.
+         */
         Elements: {
-            [key: string]: components["schemas"]["RootElement"] | components["schemas"]["Element"] | components["schemas"]["VideoElement"] | components["schemas"]["AudioElement"];
+            [key: string]: components["schemas"]["RootElement"] | components["schemas"]["Element"] | components["schemas"]["VideoElement"] | components["schemas"]["AudioElement"] | components["schemas"]["ElementVars"];
         };
-        /** @description A `dictionary` containing all pages with properties you would like to override form the default design (keys correspond to layer names) */
+        /** @description Same as `Elements`, but its image element also exposes AI generation properties (`text_to_image`, inpainting, background removal model) that are only available for asynchronous generation. */
+        AsyncElements: {
+            [key: string]: components["schemas"]["RootElement"] | components["schemas"]["AsyncElement"] | components["schemas"]["VideoElement"] | components["schemas"]["AudioElement"] | components["schemas"]["ElementVars"];
+        };
+        /**
+         * @description Design-wide text variable values. This is a reserved key of `elements`, a sibling of the
+         *     layer names — not a property of a text layer. Variables are authored in the design as
+         *     `{variableName}` placeholders; pass the variable name (without braces) as the key and the
+         *     replacement value as the value. Every text layer of the design using that placeholder is
+         *     substituted.
+         * @example {
+         *       "username": "Alice",
+         *       "title": "Spring Sale"
+         *     }
+         */
+        ElementVars: {
+            [key: string]: string;
+        };
+        /** @description Per-page element overrides, keyed by page identifier (`page_1 … page_N`). Each value is a dictionary of element overrides for that page, in the same shape as `elements` on every other generation endpoint — `root` plus any layer of that page, keyed by layer name. This endpoint is asynchronous, so its image layers accept the AI properties too. */
         Pages: {
-            [key: string]: {
-                root: components["schemas"]["RootElement"];
-            };
+            [key: string]: components["schemas"]["AsyncElements"];
         };
         DuplicationRequest: {
             /**
@@ -756,6 +1801,7 @@ export interface components {
              * @example 40c32a4e-4869-11f0-96f2-0a00d9eb8f78
              */
             duplication_request_id: string;
+            version?: components["schemas"]["ApiVersion"];
         };
         DuplicationRequestStatus: {
             /**
@@ -788,6 +1834,7 @@ export interface components {
             target_project: components["schemas"]["ProjectSummary"];
             /** @description List of duplicated designs (empty if not completed) */
             designs: components["schemas"]["DuplicatedDesign"][];
+            version?: components["schemas"]["ApiVersion"];
         };
         ProjectSummary: {
             /**
@@ -806,6 +1853,12 @@ export interface components {
              * @example 1749827125
              */
             created_at_ts: number;
+            /**
+             * @deprecated
+             * @description Deprecated alias of `name` — the same string, under the old noun. It does **not** describe a category the project belongs to: a project has no parent category. Returned by the `GET /projects` listing only; the `POST /projects` read-back omits it. Read `name`.
+             * @example HTML5 Tests
+             */
+            category_name?: string | null;
         };
         DuplicatedDesign: {
             /**
@@ -843,6 +1896,36 @@ export interface components {
                 /** @description The error reason */
                 reason?: string;
             }[];
+            version?: components["schemas"]["ApiVersion"];
+        };
+        /** @description One format of a dynamic image. Deliberately **not** `DesignFormat`: this endpoint is `static`-only (anything else answers `400 template_not_static`), so it never carries `preview_url` or the printer settings, and every field below is always present. */
+        DynamicImageFormat: {
+            /**
+             * @description Identifier (name) of the format.
+             * @example facebook-post
+             */
+            id: string;
+            /**
+             * Format: uuid
+             * @description Unique UUID of the format — the last path segment of `dynamic_image_url`.
+             * @example 9b57d65e-eb2c-4a74-a51e-4482917c248a
+             */
+            uid: string;
+            /** @example 1200 */
+            width: number;
+            /** @example 1200 */
+            height: number;
+            /**
+             * @description Always `px` here; a dynamic image is only available on static designs.
+             * @example px
+             */
+            unit: string;
+            /**
+             * Format: uri
+             * @description The dynamic image URL for this format.
+             * @example https://img.abyssale.com/ecf1fe8c-5392-48c2-b6d2-665183a18fe5/9b57d65e-eb2c-4a74-a51e-4482917c248a
+             */
+            dynamic_image_url: string;
         };
         /**
          * @example {
@@ -880,23 +1963,8 @@ export interface components {
              */
             design_id: string;
             /** @description List of formats available for this dynamic image */
-            formats: {
-                /** @description Format name */
-                id: string;
-                /** @description Format unique identifier (UUID) */
-                uid: string;
-                /** @description Width of the format in pixels */
-                width: number;
-                /** @description Unit of measurement for dimensions, e.g. px */
-                unit: string;
-                /** @description Height of the format in pixels */
-                height: number;
-                /**
-                 * Format: uri
-                 * @description URL to the dynamically generated image for this format
-                 */
-                dynamic_image_url: string;
-            }[];
+            formats: components["schemas"]["DynamicImageFormat"][];
+            version?: components["schemas"]["ApiVersion"];
         };
         /**
          * @description **The background color displayed behind the element.**
@@ -915,6 +1983,11 @@ export interface components {
          *     - [How can I add decorations to specific parts of a text?](https://developers.abyssale.com/image-generation-properties.html#color)
          */
         payload: string;
+        /**
+         * @description **The button's label.** Same content rules as a text `payload`, but capped at 2 048
+         *     characters rather than 10 000 — the validator enforces the two separately.
+         */
+        buttonPayload: string;
         /**
          * @description **The text color.**
          *
@@ -941,7 +2014,7 @@ export interface components {
          *
          *     The fonts list is available by calling the [GET /fonts](#tag/Fonts) API route.
          */
-        font: string;
+        fontId: string;
         /**
          * @description **Force a font weight**. *Example: 500*
          *
@@ -975,14 +2048,16 @@ export interface components {
          *     __If given, the text position will be computed from the text bounding box defined within the design.__
          * @enum {string}
          */
-        textAlignment: "top" | "middle" | "bottom" | "left" | "center" | "right" | "top left" | "top center" | "top right" | "middle left" | "middle center" | "middle right" | "bottom left" | "bottom right" | "bottom center";
+        textAlignment: "top" | "middle" | "bottom" | "left" | "center" | "right" | "top left" | "top center" | "top right" | "middle left" | "middle center" | "middle right" | "bottom left" | "bottom right" | "bottom center" | "top custom" | "middle custom" | "bottom custom" | "custom left" | "custom center" | "custom right" | "custom custom";
         /**
-         * @description **Text transformation style.** Force the text to be transformed to one of the following options: - `uppercase`: All letters become uppercase (e.g., `EXAMPLE`) - `lowercase`: All letters become lowercase (e.g., `example`) - `titlecase`: The first letter of each word is capitalized (e.g., `Example Text`) - `capitalize`: Only the first letter of the entire text is capitalized (e.g., `Example text`)
+         * @description **Text transformation style.** Force the text to be transformed to one of the following options: - `uppercase`: All letters become uppercase (e.g., `EXAMPLE`) - `lowercase`: All letters become lowercase (e.g., `example`) - `titlecase`: The first letter of each word is capitalized (e.g., `Example Text`) - `capitalize`: Only the first letter of the entire text is capitalized (e.g., `Example text`) - `none`: No transformation — send it to clear one set on the design
          * @enum {string}
          */
-        textTransform: "uppercase" | "lowercase" | "titlecase" | "capitalize";
-        /** @description **Width of the stroke** *Example: 10* */
+        textTransform: "none" | "uppercase" | "lowercase" | "titlecase" | "capitalize";
+        /** @description **Width of the stroke** *Example: 10*. Text and button top out at 40; a shape layer accepts up to 60 (see `shapeStrokeWidth`). The design **import** allows up to 1000, so a design can hold a stroke this endpoint cannot reproduce — the import bound is the design's, this one is the override's. */
         strokeWidth: number;
+        /** @description **Width of the shape's stroke** *Example: 10*. The design **import** allows up to 1000 — see `strokeWidth`. */
+        shapeStrokeWidth: number;
         /**
          * @description **Stroke Color. 6-8 digits Hexa color.**. *Example: #FF0000*
          *
@@ -993,9 +2068,10 @@ export interface components {
          * Format: uri
          * @description **HTTP(s) URL of the image** *Example: https://www.abyssale.com/imge/abyssale_logo.png*
          *
-         *     __It must be a public accessible link and have a filesize of 10 mo maximum.__
+         *     __It must be publicly accessible and at most 20 MB__ (500 MB on `printer` and
+         *     `printer_multipage` designs).
          *
-         *     Supported files: jpeg, png, webp, svg, gif
+         *     Supported files: jpeg, jpg, png, webp, svg, gif, tiff, tif, avif
          */
         imageUrl: string;
         /**
@@ -1017,24 +2093,27 @@ export interface components {
          */
         fittingType: "cover" | "fill";
         /**
-         * @description **The image alignment.** *Example: left*
+         * @description **The image alignment.** *Example: left*. A `custom` component resolves to the **centre** of that axis: `custom custom`, `custom center` and `middle custom` all place at the box centre, while `custom left` is the middle of the left edge. It is the value the editor stores for a hand-positioned layer, not a way to preserve one.
          * @enum {string}
          */
-        alignment: "top" | "middle" | "bottom" | "left" | "center" | "right" | "top left" | "top center" | "top right" | "middle left" | "middle center" | "middle right" | "bottom left" | "bottom right" | "bottom center";
+        alignment: "top" | "middle" | "bottom" | "left" | "center" | "right" | "top left" | "top center" | "top right" | "middle left" | "middle center" | "middle right" | "bottom left" | "bottom right" | "bottom center" | "top custom" | "middle custom" | "bottom custom" | "custom left" | "custom center" | "custom right" | "custom custom";
         /**
          * @description **A mask can be added to the image**.
          *
-         *     5 masks are available:
-         *     - `circle`: The image will be rendered as a circle. No additional property is available.
+         *     8 masks are available. Only `rounded_corners` takes a `mask_properties`; the other
+         *     seven are shapes with no additional property.
+         *
+         *     - `circle`: The image will be rendered as a circle.
          *     - `rounded_corners`: Corners of the image will be rounded. It requires another property: `mask_properties`.
-         *     - `blob`: The image will be rendered as a blob. No additional property is available.
-         *     - `squircle`: The image will be rendered as a squircle. No additional property is available.
-         *     - `pentagon`: The image will be rendered as a pentagon. No additional property is available.
-         *     - `hexagon`: The image will be rendered as a hexagon. No additional property is available.
-         *     - `parallelogram`: The image will be rendered as a parallelogram. No additional property is available.
+         *     - `blob`: The image will be rendered as a blob.
+         *     - `squircle`: The image will be rendered as a squircle.
+         *     - `pentagon`: The image will be rendered as a pentagon.
+         *     - `hexagon`: The image will be rendered as a hexagon.
+         *     - `parallelogram`: The image will be rendered as a parallelogram.
+         *     - `window`: The image will be rendered as a window (an arch — flat base, rounded top).
          * @enum {string}
          */
-        maskName: "circle" | "rounded_corners" | "blob" | "squircle" | "pentagon" | "hexagon" | "parallelogram";
+        maskName: "circle" | "rounded_corners" | "blob" | "squircle" | "pentagon" | "hexagon" | "parallelogram" | "window";
         /**
          * @description **When the rounded_corners mask is applied, this parameter allows to define the radius**.
          *
@@ -1051,7 +2130,14 @@ export interface components {
          *     }}*
          */
         maskProperties: {
-            radius?: number | Record<string, never>;
+            radius?: number | {
+                tl?: number;
+                tr?: number;
+                br?: number;
+                bl?: number;
+            };
+            /** @description Slant the mask on the y axis. */
+            skew_y?: number;
         };
         /**
          * @description **A filter can be added to the image.** *Example: grayscale*
@@ -1068,7 +2154,7 @@ export interface components {
          */
         filterProperties: {
             /** @enum {string} */
-            name?: "blue_orange" | "deep_green_light_green" | "BrightRed_light_yellow" | "brown_pale_green" | "brown_beige" | "deep_blue_green" | "deep_blue_red" | "deep_purple_orange" | "deep_purple_beige" | "deep_purple_pale_green" | "deep_blue_pale_green";
+            name?: "blue_green" | "blue_orange" | "deep_green_light_green" | "BrightRed_light_yellow" | "brown_pale_green" | "brown_beige" | "deep_blue_green" | "deep_blue_red" | "deep_purple_orange" | "deep_purple_beige" | "deep_purple_pale_green" | "deep_blue_pale_green";
         };
         /**
          * @description **A pattern can be added to the shape**.
@@ -1113,9 +2199,13 @@ export interface components {
         starColor: string;
         /** @description **Margins in pixels between stars.** *Example: 60* */
         starMargin: number;
-        /** @description **Size in pixels of one star.** *Example: 100* */
+        /** @description **Size in pixels of one star.** *Example: 100*. The design **import** requires at least 4, so this endpoint accepts smaller stars than a design can be imported with. */
         starDimension: number;
-        /** @description **The illustration library used to retrieved the illustration name. Can be: undraw, feather, twemoji or material_icons.**. */
+        /**
+         * @description **The illustration library the illustration name is looked up in.** The public libraries are `undraw`, `feather`, `twemoji` and `material_icons`.
+         *     Left as a free string rather than an enum on purpose: some workspaces have private libraries of their own, and an enum would make a generated client reject a value their API accepts.
+         * @example undraw
+         */
         illustrationType: string;
         /** @description **The illustration name.**. */
         illustrationFile: string;
@@ -1194,30 +2284,33 @@ export interface components {
                 "application/json": components["schemas"]["ErrorResponse"];
             };
         };
-        /** @description Too Many Requests — request rate limit exceeded (10 req/s). */
-        TooManyRequests: {
+        /**
+         * @description Rate limit exceeded (10 req/s) **or** a plan / credit restriction — inspect `message`
+         *     to tell them apart. Both answer `id: rate_limit_exceeded`.
+         */
+        GenerationRateLimited: {
             headers: {
                 [name: string]: unknown;
             };
             content: {
-                /**
-                 * @example {
-                 *       "message": "429 Too Many Requests",
-                 *       "id": "rate_limit_exceeded"
-                 *     }
-                 */
                 "application/json": components["schemas"]["ErrorResponse"];
             };
         };
         /**
-         * @description Plan or credit restriction — the account does not have sufficient credits or the
-         *     requested output format is not included in the current plan.
+         * @description Too Many Requests. Two different limits answer here, and the `id` tells them apart:
          *
-         *     > **Note:** The API returns these errors as HTTP `429` rather than `402`. Distinguish
-         *     > them from rate-limit errors by inspecting the `message` field.
+         *     - `request_rate_limited` — the per-workspace request rate limit for this class of
+         *       route. Wait `Retry-After` seconds and retry; `X-RateLimit-Remaining` on every
+         *       response reports how much budget is left, so this is avoidable.
+         *     - `rate_limit_exceeded` — the gateway's global ceiling, or a plan / credit
+         *       restriction. Retrying does not help until the plan or the credit balance changes.
          */
-        PaymentRequired: {
+        TooManyRequests: {
             headers: {
+                "Retry-After": components["headers"]["RetryAfter"];
+                "X-RateLimit-Limit": components["headers"]["XRateLimitLimit"];
+                "X-RateLimit-Remaining": components["headers"]["XRateLimitRemaining"];
+                "X-RateLimit-Reset": components["headers"]["XRateLimitReset"];
                 [name: string]: unknown;
             };
             content: {
@@ -1230,19 +2323,43 @@ export interface components {
                 [name: string]: unknown;
             };
             content: {
-                /**
-                 * @example {
-                 *       "message": "Internal server error",
-                 *       "id": "internal_server_error"
-                 *     }
-                 */
                 "application/json": components["schemas"]["ErrorResponse"];
             };
         };
     };
-    parameters: never;
+    parameters: {
+        /**
+         * @description Unique identifier (UUID) of the design. A value that is not a UUID does not match the
+         *     route and answers `404` with `id: endpoint_not_found`.
+         */
+        DesignId: string;
+    };
     requestBodies: never;
-    headers: never;
+    headers: {
+        /**
+         * @description Requests allowed in the current window for this class of route. When several windows
+         *     apply (a burst window and a sustained one), this describes the one closest to being
+         *     exhausted — the one you will actually hit.
+         * @example 60
+         */
+        XRateLimitLimit: number;
+        /**
+         * @description Requests still allowed in the window described by `X-RateLimit-Limit`.
+         * @example 4
+         */
+        XRateLimitRemaining: number;
+        /**
+         * @description Unix timestamp (seconds) at which that window rolls over and the budget resets.
+         * @example 1786000020
+         */
+        XRateLimitReset: number;
+        /**
+         * @description Seconds to wait before retrying. Sent only on a `429 request_rate_limited`, and never
+         *     `0` — retrying sooner will be refused again.
+         * @example 27
+         */
+        RetryAfter: number;
+    };
     pathItems: never;
 }
 export type $defs = Record<string, never>;
@@ -1252,7 +2369,7 @@ export interface operations {
             query?: {
                 /** @description Unique identifier (UUID) of a project. Filter designs by project. */
                 project_id?: string;
-                /** @description Filter designs by one of these types static, animated, printer, printer_multipage */
+                /** @description Filter designs by one of these types: static, animated, printer, printer_multipage. An unknown value is **ignored** and the full unfiltered list is returned — this never answers 400 (long-standing behavior existing integrations rely on). */
                 type?: "static" | "animated" | "printer" | "printer_multipage";
             };
             header?: never;
@@ -1261,9 +2378,12 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Ok */
+            /** @description The workspace's designs. */
             200: {
                 headers: {
+                    "X-RateLimit-Limit": components["headers"]["XRateLimitLimit"];
+                    "X-RateLimit-Remaining": components["headers"]["XRateLimitRemaining"];
+                    "X-RateLimit-Reset": components["headers"]["XRateLimitReset"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -1277,6 +2397,35 @@ export interface operations {
                     })[];
                 };
             };
+            /**
+             * @description `project_id` is not a UUID. An unknown `type` is ignored rather than rejected, so it
+             *     never answers `400`.
+             *
+             *     The reported `path` is always `category_id`, whichever of the two spellings you
+             *     sent — `category_id` is the deprecated alias of `project_id` and the two share one
+             *     validator, which kept the older wording so the released contract did not change.
+             */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "id": "invalid_payload",
+                     *       "message": "malformed id category_id",
+                     *       "errors": [
+                     *         {
+                     *           "path": "category_id",
+                     *           "code": "invalid_payload",
+                     *           "message": "malformed"
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             401: components["responses"]["Unauthorized"];
             429: components["responses"]["TooManyRequests"];
             500: components["responses"]["InternalServerError"];
@@ -1284,19 +2433,32 @@ export interface operations {
     };
     getDesign: {
         parameters: {
-            query?: never;
+            query?: {
+                /**
+                 * @description Pass `advanced` to receive the design's **full** layer set and property set —
+                 *     notably `group` layers, which are omitted from the default response. Any other
+                 *     value (or none) returns the default shape.
+                 */
+                i?: "advanced";
+            };
             header?: never;
             path: {
-                /** @description Unique identifier (UUID) of the design */
-                designId: string;
+                /**
+                 * @description Unique identifier (UUID) of the design. A value that is not a UUID does not match the
+                 *     route and answers `404` with `id: endpoint_not_found`.
+                 */
+                designId: components["parameters"]["DesignId"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Ok */
+            /** @description The design's formats, elements and variables. */
             200: {
                 headers: {
+                    "X-RateLimit-Limit": components["headers"]["XRateLimitLimit"];
+                    "X-RateLimit-Remaining": components["headers"]["XRateLimitRemaining"];
+                    "X-RateLimit-Reset": components["headers"]["XRateLimitReset"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -1317,28 +2479,67 @@ export interface operations {
                          *     - `values`: the related value for this attribute in each format (if defined)
                          */
                         elements?: components["schemas"]["DesignElement"][];
+                        variables?: components["schemas"]["DesignVariables"];
+                        animation?: components["schemas"]["DesignAnimation"];
                         /**
-                         * @description Variables used within the text layers of the design.
-                         *     Keys represent variable names (without braces), and values
-                         *     represent the placeholder format in the design (e.g. "{name}").
-                         * @example {
-                         *       "name": "{name}",
-                         *       "title": "{title}"
-                         *     }
+                         * @description **`printer_multipage` designs only** — the document's render DPI,
+                         *     computed at import time and capped at 300. Read-only.
+                         * @example 300
                          */
-                        variables?: {
-                            [key: string]: string;
+                        dpi?: number;
+                        /**
+                         * @description **`printer_multipage` designs only** — the document's bleed, a float in
+                         *     the design's unit; `0` means the zone is off.
+                         *
+                         *     Declared once, here, because a multipage document has a single print
+                         *     setup — the same reason the import declares `unit` / `width` / `height` /
+                         *     `bleed_size` / `safe_size` / `dpi` at the top level and leaves a page
+                         *     carrying only `background_color` and `layers`. **A page does not repeat
+                         *     it.**
+                         * @example 3
+                         */
+                        bleed_size?: number;
+                        /**
+                         * @description **`printer_multipage` designs only** — the document's safe zone, a float
+                         *     in the design's unit; `0` means the zone is off.
+                         * @example 5
+                         */
+                        safe_size?: number;
+                        /**
+                         * @description **`printer_multipage` designs only** — returned *instead of* `formats`.
+                         *     The document's ordered pages. Every page shares the document's dimensions
+                         *     and print settings, so a page carries neither: read those from the root.
+                         */
+                        pages?: components["schemas"]["DesignPage"][];
+                        /**
+                         * @description **`printer_multipage` designs only** — returned *instead of* `elements`.
+                         *     An object keyed by page id (`page_1 … page_N`), each value being that
+                         *     page's element list (group layers included only when `i=advanced` is
+                         *     passed). Defaults to `{}`.
+                         *
+                         *     Items are `DesignPageElement`, **not** `DesignElement`: a page is a single
+                         *     format, so values are flat rather than keyed by format name. Note also
+                         *     that its `attributes` is an object, where every other read returns an
+                         *     array — see the schema.
+                         */
+                        elements_per_page?: {
+                            [key: string]: components["schemas"]["DesignPageElement"][];
                         };
                     };
                 };
             };
-            /** @description Design Not found */
+            401: components["responses"]["Unauthorized"];
+            /** @description Design not found (`template_not_found`). */
             404: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
             };
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
         };
     };
     getDesignFormat: {
@@ -1346,9 +2547,17 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description Unique identifier of the design */
-                designId: string;
-                /** @description Format name or UID */
+                /**
+                 * @description Unique identifier (UUID) of the design. A value that is not a UUID does not match the
+                 *     route and answers `404` with `id: endpoint_not_found`.
+                 */
+                designId: components["parameters"]["DesignId"];
+                /**
+                 * @description Format name or UID. Prefer the UID — it survives a rename.
+                 *
+                 *     Not applicable to `printer_multipage` designs: they have no formats, so every value
+                 *     here answers `404` with `id: format_not_found`. See the endpoint description.
+                 */
                 formatSpecifier: string;
             };
             cookie?: never;
@@ -1358,118 +2567,39 @@ export interface operations {
             /** @description Format details retrieved successfully */
             200: {
                 headers: {
+                    "X-RateLimit-Limit": components["headers"]["XRateLimitLimit"];
+                    "X-RateLimit-Remaining": components["headers"]["XRateLimitRemaining"];
+                    "X-RateLimit-Reset": components["headers"]["XRateLimitReset"];
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
+                    "application/json": components["schemas"]["DesignFormat"] & {
+                        animation?: components["schemas"]["DesignAnimation"];
+                        design?: components["schemas"]["DesignFormatSummary"];
                         /**
-                         * @description Format identifier
-                         * @example new-format
+                         * @description The design's elements as they stand **in this format**: attribute values
+                         *     and `layout` are the requested format's, not maps keyed by format name
+                         *     (see `DesignFormatElement`). Group layers are included, flattened to this
+                         *     format.
                          */
-                        id?: string;
-                        /**
-                         * Format: uuid
-                         * @description Unique ID for the format instance
-                         * @example 6248b96f-581a-43f0-9863-85e1b7d0ec05
-                         */
-                        uid?: string;
-                        /**
-                         * @description Width of the format in specified units
-                         * @example 3333
-                         */
-                        width?: number;
-                        /**
-                         * @description Height of the format in specified units
-                         * @example 666
-                         */
-                        height?: number;
-                        /**
-                         * @description Unit of measurement for dimensions
-                         * @example px
-                         */
-                        unit?: string;
-                        /**
-                         * Format: uri
-                         * @description URL to preview image of this format
-                         * @example https://production-banners.s3-eu-west-1.amazonaws.com/templates/e0d292f2-ec21-11e9-a539-3c408bf94152/21aff1a9-bcde-4294-8320-be6cae651381.png
-                         */
-                        preview_url?: string;
-                        /**
-                         * Format: uri
-                         * @description URL to the dynamically generated image
-                         * @example https://img.abyssale.com/673f0cb6-f1f6-4f7d-8ea2-4a0ed317efbe/6248b96f-581a-43f0-9863-85e1b7d0ec0a
-                         */
-                        dynamic_image_url?: string;
-                        design?: components["schemas"]["Design"];
-                        /** @description List of all elements (& customizable properties) contained in the design format */
-                        elements?: {
-                            /**
-                             * @description Element name
-                             * @example root
-                             */
-                            name?: string;
-                            /**
-                             * @description Element type
-                             * @example container
-                             */
-                            type?: string;
-                            settings?: {
-                                /**
-                                 * @description Whether the element is mandatory
-                                 * @example false
-                                 */
-                                is_mandatory?: boolean;
-                            };
-                            attributes?: {
-                                /**
-                                 * @description Attribute identifier
-                                 * @example background_color
-                                 */
-                                id?: string;
-                                /**
-                                 * @description Help text for the attribute
-                                 * @example 6 or 8 digits hexadecimal background color (i.e. #F3F3F3) of the banner
-                                 */
-                                help?: string;
-                                /**
-                                 * @description Value of the attribute for this format
-                                 * @example #FFFFFF
-                                 */
-                                value?: string;
-                            }[];
-                            layout?: {
-                                /** @example 0 */
-                                x?: number;
-                                /** @example 0 */
-                                y?: number;
-                                /** @example 3333 */
-                                width?: number;
-                                /** @example 666 */
-                                height?: number;
-                            };
-                        }[];
-                        /**
-                         * @description Variables used within the text layers of the design format (if any).
-                         *     Keys represent variable names (without braces), and values
-                         *     represent the placeholder format in the design (e.g. "{name}").
-                         * @example {
-                         *       "name": "{name}",
-                         *       "title": "{title}"
-                         *     }
-                         */
-                        variables?: {
-                            [key: string]: string;
-                        };
+                        elements?: components["schemas"]["DesignFormatElement"][];
+                        variables?: components["schemas"]["DesignVariables"];
+                        version?: components["schemas"]["ApiVersion"];
                     };
                 };
             };
-            /** @description Format Not found */
+            401: components["responses"]["Unauthorized"];
+            /** @description Format not found (`format_not_found`). */
             404: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
             };
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
         };
     };
     createDynamicImageUrl: {
@@ -1477,8 +2607,11 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description Unique identifier of the design */
-                designId: string;
+                /**
+                 * @description Unique identifier (UUID) of the design. A value that is not a UUID does not match the
+                 *     route and answers `404` with `id: endpoint_not_found`.
+                 */
+                designId: components["parameters"]["DesignId"];
             };
             cookie?: never;
         };
@@ -1508,6 +2641,9 @@ export interface operations {
             /** @description Existing dynamic image retrieved */
             200: {
                 headers: {
+                    "X-RateLimit-Limit": components["headers"]["XRateLimitLimit"];
+                    "X-RateLimit-Remaining": components["headers"]["XRateLimitRemaining"];
+                    "X-RateLimit-Reset": components["headers"]["XRateLimitReset"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -1517,19 +2653,36 @@ export interface operations {
             /** @description Dynamic image successfully created */
             201: {
                 headers: {
+                    "X-RateLimit-Limit": components["headers"]["XRateLimitLimit"];
+                    "X-RateLimit-Remaining": components["headers"]["XRateLimitRemaining"];
+                    "X-RateLimit-Reset": components["headers"]["XRateLimitReset"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["DynamicImageResponse"];
                 };
             };
-            /** @description Design Not found */
+            /** @description The design is not `static` (`template_not_static`) or not active (`template_not_active`). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description Design not found (`template_not_found`). */
             404: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
             };
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
         };
     };
     getFile: {
@@ -1544,76 +2697,21 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Ok */
+            /** @description The file's metadata and download URLs. */
             200: {
                 headers: {
+                    "X-RateLimit-Limit": components["headers"]["XRateLimitLimit"];
+                    "X-RateLimit-Remaining": components["headers"]["XRateLimitRemaining"];
+                    "X-RateLimit-Reset": components["headers"]["XRateLimitReset"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["Banner"];
                 };
             };
-            /** @description A banner with the specified ID was not found. */
+            401: components["responses"]["Unauthorized"];
+            /** @description Banner not found (`visual_not_found`). */
             404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    generateImage: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Unique identifier (UUID) of the design */
-                designId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    elements: components["schemas"]["Elements"];
-                    /**
-                     * @description Corresponds to the format ID you would like to generate (only mandatory when your design contains several formats).
-                     * @example facebook-post
-                     */
-                    template_format_name?: string;
-                    /**
-                     * @description Output file type. Defaults to the design's configured type when omitted.
-                     * @enum {string}
-                     */
-                    image_file_type?: "png" | "jpeg" | "webp" | "avif" | "pdf" | "auto";
-                    /**
-                     * @description Percentage of compression applied.
-                     * @example 80
-                     */
-                    file_compression_level?: number;
-                };
-            };
-        };
-        responses: {
-            /** @description Ok */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Banner"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            404: components["responses"]["NotFound"];
-            /**
-             * @description Rate limit exceeded (10 req/s) **or** plan/credit restriction.
-             *     Inspect the `message` field to distinguish the two causes — see the
-             *     [`TooManyRequests`](#/components/responses/TooManyRequests) and
-             *     [`PaymentRequired`](#/components/responses/PaymentRequired) components
-             *     for the full list of possible messages.
-             */
-            429: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -1621,6 +2719,117 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    generateImage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description Unique identifier (UUID) of the design. A value that is not a UUID does not match the
+                 *     route and answers `404` with `id: endpoint_not_found`.
+                 */
+                designId: components["parameters"]["DesignId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "template_format_name": "facebook-post",
+                 *       "image_file_type": "png",
+                 *       "elements": {
+                 *         "root": {
+                 *           "background_color": "#F3F3F3"
+                 *         },
+                 *         "title": {
+                 *           "payload": "Summer sale — 40% off",
+                 *           "color": "#111111"
+                 *         },
+                 *         "product-image": {
+                 *           "image_url": "https://example.com/product.jpg"
+                 *         },
+                 *         "cta": {
+                 *           "payload": "Shop now",
+                 *           "background_color": "#5B4CF5"
+                 *         }
+                 *       }
+                 *     }
+                 */
+                "application/json": {
+                    /** @description Element overrides keyed by layer name. On this synchronous endpoint every value MUST be an object — a bare string value answers `400 invalid_payload` (the asynchronous endpoint is lenient). */
+                    elements?: components["schemas"]["Elements"];
+                    /**
+                     * @description Format ID to generate. Optional — when omitted, the design's first format is generated.
+                     * @example facebook-post
+                     */
+                    template_format_name?: string;
+                    /**
+                     * @description Output file type (`auto` ≡ omitted). When omitted: `jpeg`, or `png` when the format's background color is transparent.
+                     * @enum {string}
+                     */
+                    image_file_type?: "png" | "jpeg" | "webp" | "avif" | "pdf" | "auto";
+                    /**
+                     * Format: uuid
+                     * @description Regenerate an existing visual in place, keeping its share URL (visual versioning). Unknown or unrelated visuals answer 404 (`visual_not_found`, `not_related_to_same_template`, `not_related_to_same_format`).
+                     */
+                    original_visual_id?: string;
+                    /**
+                     * @description Output quality, 1-100 — 100 is the best quality (least compression), 1 the smallest file. Despite the name, higher = better.
+                     * @example 80
+                     */
+                    file_compression_level?: number;
+                };
+            };
+        };
+        responses: {
+            /** @description The generated banner, including its file URLs. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "id": "64238d01-d402-474b-8c2d-fbc957e9d290",
+                     *       "version": 1,
+                     *       "sharing_id": "5fcec999-2bfb-4dd7-ba38-2d9e16c49149",
+                     *       "file": {
+                     *         "type": "png",
+                     *         "url": "https://production-banners.s3.eu-west-1.amazonaws.com/demo/996739f4-b563-428a-a6e8-ec3cb8bd03d4.png",
+                     *         "cdn_url": "https://cdn.abyssale.com/demo/996739f4-b563-428a-a6e8-ec3cb8bd03d4.png",
+                     *         "filename": "996739f4-b563-428a-a6e8-ec3cb8bd03d4.png"
+                     *       },
+                     *       "format": {
+                     *         "id": "facebook-post",
+                     *         "unit": "px",
+                     *         "width": 1200,
+                     *         "height": 1200
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Banner"];
+                };
+            };
+            /**
+             * @description The request body or parameters are invalid, **or** the design is not `static`
+             *     (`template_not_static` — this endpoint renders single images only).
+             */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["GenerationRateLimited"];
             500: components["responses"]["InternalServerError"];
         };
     };
@@ -1629,15 +2838,40 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description Unique identifier (UUID) of the design */
-                designId: string;
+                /**
+                 * @description Unique identifier (UUID) of the design. A value that is not a UUID does not match the
+                 *     route and answers `404` with `id: endpoint_not_found`.
+                 */
+                designId: components["parameters"]["DesignId"];
             };
             cookie?: never;
         };
         requestBody: {
             content: {
+                /**
+                 * @example {
+                 *       "template_format_names": [
+                 *         "facebook-feed",
+                 *         "instagram-post"
+                 *       ],
+                 *       "image_file_type": "png",
+                 *       "callback_url": "https://example.com/webhooks/abyssale",
+                 *       "elements": {
+                 *         "root": {
+                 *           "background_color": "#F3F3F3"
+                 *         },
+                 *         "title": {
+                 *           "payload": "Summer sale — 40% off",
+                 *           "color": "#111111"
+                 *         },
+                 *         "product-image": {
+                 *           "image_url": "https://example.com/product.jpg"
+                 *         }
+                 *       }
+                 *     }
+                 */
                 "application/json": {
-                    elements: components["schemas"]["Elements"];
+                    elements?: components["schemas"]["AsyncElements"];
                     /**
                      * @description **Format IDs you would like to generate**.
                      *
@@ -1657,11 +2891,11 @@ export interface operations {
                      */
                     callback_url?: string;
                     /**
-                     * @description Output file type. Depends on the design type (static/animated/printer). Defaults to the design's configured type when omitted.
+                     * @description Output file type (`auto` ≡ omitted); must match the design type, else `400 invalid_filetype` — static → jpeg/png/webp/avif/pdf, animated → mp4/gif/html5, print → pdf. When omitted: static → jpeg (png when the format background is transparent); animated → mp4; print → pdf.
                      * @enum {string}
                      */
-                    image_file_type?: "png" | "jpeg" | "webp" | "avif" | "gif" | "pdf" | "html5" | "mp4" | "webm" | "auto";
-                    /** @description Percentage of compression applied. */
+                    image_file_type?: "png" | "jpeg" | "webp" | "avif" | "gif" | "pdf" | "html5" | "mp4" | "auto";
+                    /** @description Output quality, 1-100 — 100 is the best quality (least compression), 1 the smallest file. Despite the name, higher = better. */
                     file_compression_level?: number;
                     /** @description HTML5 output options (animated designs only) */
                     html5?: {
@@ -1670,7 +2904,7 @@ export interface operations {
                         /** @default https://www.abyssale.com */
                         click_tag?: string;
                         /**
-                         * @description Ad network identifier (e.g. "default", "doubleclick", "sizmek")
+                         * @description Ad network to optimize the HTML5 output for (e.g. `google-ads`, `google-marketing`, `adform`, `amazon-ads`, `adroll`). Free string — unknown values are validated downstream.
                          * @default default
                          */
                         ad_network?: string;
@@ -1692,11 +2926,27 @@ export interface operations {
                     print?: {
                         /**
                          * Format: uuid
-                         * @description UUID of the color profile to apply
+                         * @description UUID of the color profile to apply. The built-ins, which are the same for
+                         *     every workspace:
+                         *
+                         *     | UUID | Profile |
+                         *     |---|---|
+                         *     | `be2ab219-8fe4-4d85-91ba-65bdc9ddaf01` | CMYK — ISO Coated v2 (ECI) |
+                         *     | `03738f37-5b6f-4be9-9100-706b1711f9dd` | CMYK — ISO Coated v2 (ECI) 300% |
+                         *     | `e0c86a8a-050c-41f1-885a-0f74b9baac50` | CMYK — ISO Uncoated |
+                         *     | `0e0355e6-2931-4c83-92f2-64db9f5ddffc` | CMYK — US Web Coated (SWOP 2006 5v2) |
+                         *     | `fac91df8-1155-11ef-b77e-f93002785645` | CMYK — ISO Newspaper26 v4 |
+                         *     | `db3c123e-1127-11ef-b77e-f93002785645` | RGB — No color profile |
+                         *
+                         *     A workspace may also hold custom profiles, whose UUIDs are not listed
+                         *     here. Omitted, the design's own profile is used. Not an enum: the list can
+                         *     grow, and a generated client should not reject a UUID it has not seen.
                          */
                         color_profile?: string;
                         display_crop_marks?: boolean;
                     };
+                    /** @description **`printer_multipage` designs only**, where it replaces `elements`: a multipage design is one document with no formats, so content is addressed per page. Ignored on every other design type. The dedicated [multipage PDF operation](#tag/Asset-Generation/operation/generateMultiPagePdf) takes the same field and is the clearer choice for print output; this one exists so a `printer_multipage` design can also be driven through the generic async endpoint. */
+                    pages?: components["schemas"]["Pages"];
                     /**
                      * Format: uuid
                      * @description UUID of the original visual this generation is based on.
@@ -1706,45 +2956,71 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Ok */
+            /** @description Generation queued; poll `generation_request_id` or wait for the webhook. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "generation_request_id": "3f2a9c18-6b1e-4f4a-9a75-2b6d0e1c8f77"
+                     *     }
+                     */
                     "application/json": {
                         /**
                          * Format: uuid
                          * @description Unique identifier (UUID) of the batch generation
                          */
                         generation_request_id?: string;
+                        version?: components["schemas"]["ApiVersion"];
                     };
                 };
             };
             400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
-            /**
-             * @description Rate limit exceeded (10 req/s) **or** plan/credit restriction.
-             *     Inspect the `message` field to distinguish the two causes — see the
-             *     [`TooManyRequests`](#/components/responses/TooManyRequests) and
-             *     [`PaymentRequired`](#/components/responses/PaymentRequired) components
-             *     for the full list of possible messages.
-             */
-            429: {
+            429: components["responses"]["GenerationRateLimited"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    verifyApiKey: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The key is valid and the plan includes API access. */
+            200: {
                 headers: {
+                    "X-RateLimit-Limit": components["headers"]["XRateLimitLimit"];
+                    "X-RateLimit-Remaining": components["headers"]["XRateLimitRemaining"];
+                    "X-RateLimit-Reset": components["headers"]["XRateLimitReset"];
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
+                    "application/json": {
+                        /**
+                         * @description Name of the workspace the key belongs to.
+                         * @example Acme Inc.
+                         */
+                        company?: string;
+                        version?: components["schemas"]["ApiVersion"];
+                    };
                 };
             };
+            401: components["responses"]["Unauthorized"];
+            429: components["responses"]["TooManyRequests"];
             500: components["responses"]["InternalServerError"];
         };
     };
     listFonts: {
         parameters: {
             query?: {
-                /** @description Filter fonts by type. Omit to return both Google and custom fonts. */
+                /** @description Filter fonts by type. Omit to return both Google and custom fonts. An unknown value is **ignored** and the full unfiltered list is returned — this never answers 400 (long-standing behavior existing integrations rely on). */
                 type?: "google" | "custom";
             };
             header?: never;
@@ -1753,9 +3029,12 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Ok */
+            /** @description The fonts available to this workspace. */
             200: {
                 headers: {
+                    "X-RateLimit-Limit": components["headers"]["XRateLimitLimit"];
+                    "X-RateLimit-Remaining": components["headers"]["XRateLimitRemaining"];
+                    "X-RateLimit-Reset": components["headers"]["XRateLimitReset"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -1789,23 +3068,39 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Ok */
+            /** @description Export queued; keep `export_id` to match the webhook. */
             200: {
                 headers: {
+                    "X-RateLimit-Limit": components["headers"]["XRateLimitLimit"];
+                    "X-RateLimit-Remaining": components["headers"]["XRateLimitRemaining"];
+                    "X-RateLimit-Reset": components["headers"]["XRateLimitReset"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": {
                         /**
+                         * Format: uuid
                          * @description Unique identifier (UUID) of the asynchronous export. Keep it to be able to identify the asynchronous response.
                          * @example 64238d01-d402-474b-8c2d-fbc957e9d290
                          */
                         export_id: string;
+                        version?: components["schemas"]["ApiVersion"];
                     };
                 };
             };
             400: components["responses"]["BadRequest"];
-            404: components["responses"]["NotFound"];
+            401: components["responses"]["Unauthorized"];
+            /** @description None of the `banner_ids` exist in this workspace (`visual_not_found`). An id that is not a valid UUID answers `endpoint_not_found` instead. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
         };
     };
     generateMultiPagePdf: {
@@ -1813,8 +3108,11 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description Unique identifier (UUID) of the design */
-                designId: string;
+                /**
+                 * @description Unique identifier (UUID) of the design. A value that is not a UUID does not match the
+                 *     route and answers `404` with `id: endpoint_not_found`.
+                 */
+                designId: components["parameters"]["DesignId"];
             };
             cookie?: never;
         };
@@ -1833,7 +3131,21 @@ export interface operations {
                     print?: {
                         /**
                          * Format: uuid
-                         * @description UUID of the color profile to apply
+                         * @description UUID of the color profile to apply. The built-ins, which are the same for
+                         *     every workspace:
+                         *
+                         *     | UUID | Profile |
+                         *     |---|---|
+                         *     | `be2ab219-8fe4-4d85-91ba-65bdc9ddaf01` | CMYK — ISO Coated v2 (ECI) |
+                         *     | `03738f37-5b6f-4be9-9100-706b1711f9dd` | CMYK — ISO Coated v2 (ECI) 300% |
+                         *     | `e0c86a8a-050c-41f1-885a-0f74b9baac50` | CMYK — ISO Uncoated |
+                         *     | `0e0355e6-2931-4c83-92f2-64db9f5ddffc` | CMYK — US Web Coated (SWOP 2006 5v2) |
+                         *     | `fac91df8-1155-11ef-b77e-f93002785645` | CMYK — ISO Newspaper26 v4 |
+                         *     | `db3c123e-1127-11ef-b77e-f93002785645` | RGB — No color profile |
+                         *
+                         *     A workspace may also hold custom profiles, whose UUIDs are not listed
+                         *     here. Omitted, the design's own profile is used. Not an enum: the list can
+                         *     grow, and a generated client should not reject a UUID it has not seen.
                          */
                         color_profile?: string;
                         display_crop_marks?: boolean;
@@ -1847,7 +3159,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Ok */
+            /** @description Generation queued; poll `generation_request_id` or wait for the webhook. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -1859,26 +3171,14 @@ export interface operations {
                          * @description Unique identifier (UUID) of the batch generation
                          */
                         generation_request_id?: string;
+                        version?: components["schemas"]["ApiVersion"];
                     };
                 };
             };
             400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
-            /**
-             * @description Rate limit exceeded (10 req/s) **or** plan/credit restriction.
-             *     Inspect the `message` field to distinguish the two causes — see the
-             *     [`TooManyRequests`](#/components/responses/TooManyRequests) and
-             *     [`PaymentRequired`](#/components/responses/PaymentRequired) components
-             *     for the full list of possible messages.
-             */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
+            429: components["responses"]["GenerationRateLimited"];
             500: components["responses"]["InternalServerError"];
         };
     };
@@ -1894,9 +3194,12 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Ok */
+            /** @description Generation finished — `is_finalized` is `true` and `banners` is populated. */
             200: {
                 headers: {
+                    "X-RateLimit-Limit": components["headers"]["XRateLimitLimit"];
+                    "X-RateLimit-Remaining": components["headers"]["XRateLimitRemaining"];
+                    "X-RateLimit-Reset": components["headers"]["XRateLimitReset"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -1906,19 +3209,36 @@ export interface operations {
             /** @description Generation still in progress */
             202: {
                 headers: {
+                    "X-RateLimit-Limit": components["headers"]["XRateLimitLimit"];
+                    "X-RateLimit-Remaining": components["headers"]["XRateLimitRemaining"];
+                    "X-RateLimit-Reset": components["headers"]["XRateLimitReset"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["GenerationRequestStatus"];
                 };
             };
-            /** @description Generation request not found */
+            401: components["responses"]["Unauthorized"];
+            /** @description Generation request not found (`generation_request_not_found`). */
             404: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
             };
+            /** @description Gone — the generation request expired (`generation_request_gone`; requests are kept 7 days). */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
         };
     };
     listProjects: {
@@ -1930,9 +3250,12 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Ok */
+            /** @description The workspace's projects. */
             200: {
                 headers: {
+                    "X-RateLimit-Limit": components["headers"]["XRateLimitLimit"];
+                    "X-RateLimit-Remaining": components["headers"]["XRateLimitRemaining"];
+                    "X-RateLimit-Reset": components["headers"]["XRateLimitReset"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -1966,13 +3289,123 @@ export interface operations {
             /** @description Project created successfully */
             200: {
                 headers: {
+                    "X-RateLimit-Limit": components["headers"]["XRateLimitLimit"];
+                    "X-RateLimit-Remaining": components["headers"]["XRateLimitRemaining"];
+                    "X-RateLimit-Reset": components["headers"]["XRateLimitReset"];
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ProjectSummary"];
+                    "application/json": components["schemas"]["ProjectSummary"] & {
+                        version?: components["schemas"]["ApiVersion"];
+                    };
                 };
             };
-            400: components["responses"]["BadRequest"];
+            /**
+             * @description Bad Request — `name` is missing, outside 2–100 characters, or already taken
+             *     (`project_already_exists`).
+             *
+             *     Project names are unique within a workspace, and the comparison is made on the
+             *     **trimmed** name: `"  Summer  "` collides with an existing `"Summer"`. Note the
+             *     length check runs before trimming, so `"  a  "` passes validation and is stored as
+             *     the single character `a`.
+             */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    listWorkspaceTemplates: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Unique identifier (UUID) of a workspace category. List the available ids with
+                 *     `GET /workspace-template-categories`. Categories are optional, so this filter only
+                 *     ever returns categorised templates — omit it to include those at the workspace root.
+                 */
+                category_id?: string;
+                /** @description Filter workspace templates by one of these types: static, animated, printer, printer_multipage. An unknown value is **ignored** and the full unfiltered list is returned — this never answers 400 (long-standing behavior existing integrations rely on). */
+                type?: "static" | "printer" | "animated" | "printer_multipage";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The workspace's shared templates. */
+            200: {
+                headers: {
+                    "X-RateLimit-Limit": components["headers"]["XRateLimitLimit"];
+                    "X-RateLimit-Remaining": components["headers"]["XRateLimitRemaining"];
+                    "X-RateLimit-Reset": components["headers"]["XRateLimitReset"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceTemplate"][];
+                };
+            };
+            /**
+             * @description `category_id` is not a UUID. The only way this endpoint answers `400`: an unknown
+             *     `type` is ignored rather than rejected, so it never does.
+             */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "id": "invalid_payload",
+                     *       "message": "malformed id category_id",
+                     *       "errors": [
+                     *         {
+                     *           "path": "category_id",
+                     *           "code": "invalid_payload",
+                     *           "message": "malformed"
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    listWorkspaceTemplateCategories: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The categories grouping workspace templates. */
+            200: {
+                headers: {
+                    "X-RateLimit-Limit": components["headers"]["XRateLimitLimit"];
+                    "X-RateLimit-Remaining": components["headers"]["XRateLimitRemaining"];
+                    "X-RateLimit-Reset": components["headers"]["XRateLimitReset"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceTemplateCategory"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
         };
     };
     duplicateWorkspaceTemplate: {
@@ -2009,19 +3442,36 @@ export interface operations {
             /** @description Duplication request accepted and processing */
             200: {
                 headers: {
+                    "X-RateLimit-Limit": components["headers"]["XRateLimitLimit"];
+                    "X-RateLimit-Remaining": components["headers"]["XRateLimitRemaining"];
+                    "X-RateLimit-Reset": components["headers"]["XRateLimitReset"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["DuplicationRequest"];
                 };
             };
-            /** @description Workspace template Or Project not found */
+            /** @description `project_id` is absent or not a UUID (`missing_required` / `wrong_type`), or `name` is outside 2-100 characters (`out_of_range`). Field detail is in `errors[]`. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description Workspace template not found (`workspace_template_not_found`), or the `project_id` does not exist in this workspace (`project_not_found`). */
             404: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
             };
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
         };
     };
     getDuplicationRequest: {
@@ -2042,19 +3492,36 @@ export interface operations {
             /** @description Duplication request status */
             200: {
                 headers: {
+                    "X-RateLimit-Limit": components["headers"]["XRateLimitLimit"];
+                    "X-RateLimit-Remaining": components["headers"]["XRateLimitRemaining"];
+                    "X-RateLimit-Reset": components["headers"]["XRateLimitReset"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["DuplicationRequestStatus"];
                 };
             };
-            /** @description Duplication request not found */
+            401: components["responses"]["Unauthorized"];
+            /** @description Duplication request not found (`duplication_request_not_found`). */
             404: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
             };
+            /** @description The duplication request has expired (`duplication_request_gone`). Statuses are kept for 7 days. */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
         };
     };
 }

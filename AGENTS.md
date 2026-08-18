@@ -8,10 +8,18 @@ Types are auto-generated from the public OpenAPI spec at `https://api-reference.
 
 ```
 src/generated.ts       ← auto-generated types (openapi-typescript) — never edit manually
-src/middleware.ts      ← retry + timeout middleware
-src/index.ts           ← singleton export with all 17 named methods + public type re-exports
-dist/                  ← compiled output (gitignored) — built by tsup
+src/middleware.ts      ← retry (idempotent 5xx + Retry-After 429 only) + timeout middleware
+src/index.ts           ← singleton export: 18 named methods + 2 polling helpers + public type re-exports
+dist/                  ← compiled output — built by tsup, gitignored, produced at publish time
+scripts/fetch-spec.mjs ← fetches the spec and strips the Alpha design-import surface
 ```
+
+## Where the docs live
+
+The **canonical SDK reference is the docs site**: `https://developers.abyssale.com/sdks/nodejs`
+(source: `abyssale-developers-doc/docs/sdks/nodejs.md`). `README.md` is deliberately a short
+pointer — do not re-expand the method list, config table or retry rules into it, or the two copies
+will drift. Add new facts to the docs page; keep `llms.txt` in sync since it is machine-facing.
 
 ## Key decisions
 
@@ -36,6 +44,18 @@ npm test            # vitest
 2. Run `npm run generate` — pulls the latest spec and regenerates `src/generated.ts`
 3. Add a method to the `abyssale` object in `src/index.ts` following the existing pattern
 4. Add a JSDoc `@example` to the method
+
+**Deliberate exclusion — design import.** The design-import surface (`POST /designs/import/json`,
+`GET`/`PUT` `/designs/import/json/{importId}`, `GET /designs/{designId}/as-import` and every
+`DesignImport*` / `DesignAsImportResponse` schema) is in **Alpha** and intentionally NOT in the
+SDK. **`npm run generate` strips them automatically** — `scripts/fetch-spec.mjs` fetches the spec,
+removes those paths, every `DesignImport*` / `DesignAsImportResponse` schema and the matching
+`components.responses` entries, then fails loudly if the strip left a dangling `$ref`. No manual
+step, and `prepublishOnly` can no longer ship the Alpha surface by accident.
+
+`ApiVersion` is deliberately NOT stripped — it is shared with `Design`, `Banner` and
+`ErrorResponse`. To regenerate against an unpublished spec (e.g. an `abyssale-edge-api` branch),
+set `ABYSSALE_SPEC_URL` to a local path. Delete the script once the design-import API is stable.
 
 ## Local development in another repo
 

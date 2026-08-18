@@ -1,6 +1,7 @@
 import createClient from "openapi-fetch";
 import type { paths, components, operations } from "./generated.js";
-import { retryMiddleware, timeoutMiddleware } from "./middleware.js";
+import type { RetryPlan } from "./middleware.js";
+import { retryMiddleware, timeoutMiddleware, planRetry } from "./middleware.js";
 
 // ── Public type re-exports ────────────────────────────────────────────────────
 // Consumers can import these directly: import type { Banner } from '@abyssale/sdk'
@@ -9,6 +10,11 @@ export type Banner = components["schemas"]["Banner"];
 export type Design = components["schemas"]["Design"];
 export type DesignFormat = components["schemas"]["DesignFormat"];
 export type DesignElement = components["schemas"]["DesignElement"];
+export type DesignAnimation = components["schemas"]["DesignAnimation"];
+export type ErrorResponse = components["schemas"]["ErrorResponse"];
+export type WorkspaceTemplate = components["schemas"]["WorkspaceTemplate"];
+export type WorkspaceTemplateCategory =
+  components["schemas"]["WorkspaceTemplateCategory"];
 export type Font = components["schemas"]["Font"];
 export type ProjectSummary = components["schemas"]["ProjectSummary"];
 export type GenerationRequestStatus =
@@ -19,6 +25,9 @@ export type DuplicationRequestStatus =
   components["schemas"]["DuplicationRequestStatus"];
 export type DuplicatedDesign = components["schemas"]["DuplicatedDesign"];
 export type Elements = components["schemas"]["Elements"];
+export type AsyncElements = components["schemas"]["AsyncElements"];
+/** `text_to_image_properties` on an image element — `generateMultiFormatMedia` only. */
+export type TextToImageProperties = components["schemas"]["TextToImageProperties"];
 export type Pages = components["schemas"]["Pages"];
 
 // ── Body type helpers (extracted from operations for cleaner method signatures) ─
@@ -38,6 +47,9 @@ type DuplicateWorkspaceTemplateBody =
   operations["duplicateWorkspaceTemplate"]["requestBody"]["content"]["application/json"];
 type ListDesignsQuery = NonNullable<
   operations["listDesigns"]["parameters"]["query"]
+>;
+type ListWorkspaceTemplatesQuery = NonNullable<
+  operations["listWorkspaceTemplates"]["parameters"]["query"]
 >;
 
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -76,12 +88,29 @@ const _client = createClient<paths>({
 });
 
 _client.use(timeoutMiddleware(timeoutMs));
-_client.use(retryMiddleware(maxRetries));
+// Registered after the timeout middleware so its `onResponse` runs first (openapi-fetch walks
+// response middleware in reverse). It takes `timeoutMs` because it re-arms the timeout per attempt.
+_client.use(retryMiddleware(maxRetries, timeoutMs));
 
 // ── SDK singleton ─────────────────────────────────────────────────────────────
 // Each method returns { data, error, response } — never throws on HTTP errors.
 // Check `error` to handle API failures; `data` is populated on success.
 const abyssale = {
+  // ── Authentication ───────────────────────────────────────────────────────
+
+  /**
+   * Verify the API key and return the workspace it belongs to.
+   * Takes no body. Every failure is a `401` — unknown key, revoked key, or a plan
+   * without API access (`api_access_denied`); this endpoint never answers `403`.
+   *
+   * Do not use the health check to test a key: it is exempt from authentication and
+   * answers `200` for a revoked key.
+   * @example
+   * const { data, error } = await abyssale.verifyApiKey();
+   * if (!error) console.log(data.company);
+   */
+  verifyApiKey: () => _client.POST("/auth"),
+
   // ── Designs ──────────────────────────────────────────────────────────────
 
   /**
@@ -96,15 +125,30 @@ const abyssale = {
   /**
    * Get the full specification of a design: formats, elements, and variables.
    * Use this to discover what data to pass in a generation request.
+   * Multipage print designs (`printer_multipage`) have no formats — the response
+   * carries `pages` and `elements_per_page` (keyed `page_1 … page_N`) instead of
+   * `formats`, `elements`, `variables` and `dynamic_image_url`.
+   *
+   * Pass `{ advanced: true }` to get the full layer set — notably `group` layers, which the
+   * default response omits. `getDesignFormat` is always the advanced view and needs no flag.
    * @example
    * const { data } = await abyssale.getDesign('64238d01-d402-474b-8c2d-fbc957e9d290');
+   * const { data: full } = await abyssale.getDesign(designId, { advanced: true });
    */
-  getDesign: (designId: string) =>
-    _client.GET("/designs/{designId}", { params: { path: { designId } } }),
+  getDesign: (designId: string, options?: { advanced?: boolean }) =>
+    _client.GET("/designs/{designId}", {
+      params: {
+        path: { designId },
+        query: options?.advanced ? { i: "advanced" as const } : undefined,
+      },
+    }),
 
   /**
-   * Get details for a specific format within a design.
+   * Get details for a specific format within a design. Always the advanced view: the full
+   * property set and the format's `group` layers, flattened to that one format.
    * `formatSpecifier` can be the format name (e.g. "facebook-post") or its UUID.
+   * Does not apply to `printer_multipage` designs (they have no formats):
+   * every specifier answers `404 format_not_found` — use `getDesign` instead.
    * @example
    * const { data } = await abyssale.getDesignFormat(designId, 'facebook-post');
    */
@@ -249,6 +293,26 @@ const abyssale = {
   // ── Workspace Templates ───────────────────────────────────────────────────
 
   /**
+   * List the organisation-level master designs shared across the workspace.
+   * Optionally filter by `category_id` (see `listWorkspaceTemplateCategories`)
+   * or `type` (static, animated, printer, printer_multipage).
+   * Workspace templates never appear in `listDesigns` — duplicate one into a
+   * project with `duplicateWorkspaceTemplate` to work on it as a design.
+   * @example
+   * const { data, error } = await abyssale.listWorkspaceTemplates({ type: 'static' });
+   */
+  listWorkspaceTemplates: (query?: ListWorkspaceTemplatesQuery) =>
+    _client.GET("/workspace-templates", { params: { query } }),
+
+  /**
+   * List the categories that group workspace templates.
+   * Use a category's `id` as the `category_id` filter on `listWorkspaceTemplates`.
+   * Categories are optional — templates at the workspace root have none.
+   */
+  listWorkspaceTemplateCategories: () =>
+    _client.GET("/workspace-template-categories"),
+
+  /**
    * Duplicate a shared workspace template into one of your projects.
    * Returns a `duplication_request_id`; poll with `getDuplicationRequest` for status.
    * @example
@@ -293,6 +357,55 @@ const POLL_MIN_INTERVAL_MS = 2_000;
 const POLL_MIN_MAX_INTERVAL_MS = 5_000;
 const POLL_MIN_TIMEOUT_MS = 60_000;
 
+/**
+ * How many *consecutive* transient failures a poll loop absorbs before giving up.
+ *
+ * A wait can legitimately run for the full 30 minutes — the async endpoint has no completion bound,
+ * and an AI image round-trip pushes well past a plain render. Failing the whole wait on one 503 or
+ * one aborted poll would throw away everything already elapsed for a condition that the next poll,
+ * three seconds later, usually clears. The streak resets on any successful poll, so this tolerates
+ * blips without hiding an endpoint that is actually down.
+ */
+const POLL_MAX_TRANSIENT_FAILURES = 3;
+
+/**
+ * Thrown when a polling helper's underlying request fails.
+ *
+ * The API's error body is preserved on `.response` (and its machine-readable `id` on `.id`)
+ * rather than being flattened into the message — callers branch on `id`, never on prose. See
+ * {@link ErrorResponse}.
+ *
+ * @example
+ * try {
+ *   await abyssale.waitForGenerationRequest(id);
+ * } catch (err) {
+ *   if (err instanceof AbyssalePollingError && err.id === "generation_request_not_found") {
+ *     // handle a request that has expired
+ *   }
+ * }
+ */
+export class AbyssalePollingError extends Error {
+  /** The parsed API error body, when the failure carried one. */
+  readonly response?: ErrorResponse;
+  /** The API's machine-readable error code, when present. */
+  readonly id?: string;
+  /** The raw error value, exactly as returned by the underlying fetch layer. */
+  readonly cause: unknown;
+
+  constructor(error: unknown) {
+    const body = (
+      error && typeof error === "object" && !(error instanceof Error) ? error : undefined
+    ) as ErrorResponse | undefined;
+    const detail =
+      error instanceof Error ? error.message : (body?.message ?? JSON.stringify(error));
+    super(`[abyssale] Polling failed: ${detail}`);
+    this.name = "AbyssalePollingError";
+    this.cause = error;
+    this.response = body;
+    this.id = body?.id;
+  }
+}
+
 // ── Internal polling helper ───────────────────────────────────────────────────
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -302,21 +415,91 @@ function jitter(): number {
   return Math.floor(Math.random() * 500);
 }
 
+/**
+ * How a failed poll should be treated, or null when it is fatal.
+ *
+ * Defers to {@link planRetry} so this cannot drift from `retryMiddleware` again — it had: this
+ * predicate retried *every* 429, including the permanent ones, so three re-asks and ~21s later the
+ * poll failed with the error it started with.
+ *
+ * The rationale is unchanged: a 5xx or a real throttle says nothing about the generation itself,
+ * while any other 4xx is a verdict — `generation_request_not_found` must fail on the first poll
+ * rather than be re-asked for 30 minutes.
+ *
+ * The poll has the error body already parsed, so unlike the middleware it never re-reads the
+ * response to find the `id`.
+ */
+function planPollRetry(response: Response | undefined, cause: unknown): RetryPlan | null {
+  // A network-level throw (`fetch` rejected, or the request was aborted) has no response at all.
+  if (!response) return { probe: false, delayMs: null };
+  const id = typeof (cause as { id?: unknown } | null)?.id === "string" ? (cause as { id: string }).id : null;
+  return planRetry(response, id);
+}
+
 async function pollUntil<T>(
-  fn: () => Promise<{ data?: T | null; error?: unknown }>,
+  fn: () => Promise<{ data?: T | null; error?: unknown; response?: Response }>,
   isDone: (data: T) => boolean,
   opts: Required<PollOptions>
 ): Promise<T> {
   const deadline = Date.now() + opts.timeoutMs;
   let interval = opts.intervalMs;
+  let transientFailures = 0;
+  /**
+   * How long the server asked us to wait, when the last failure said so. It replaces the backoff
+   * for exactly one wait: a throttle that says "60s" is not answered by re-asking in 3, which
+   * would spend the whole transient-failure budget inside the window it was told to sit out.
+   */
+  let serverRequestedWaitMs: number | null = null;
+  /**
+   * Bare `429`s absorbed so far. Capped at one for the whole poll, not one in a row: the probe
+   * exists to find out whether the refusal was the gateway's per-second ceiling, and a second
+   * bare 429 after a successful probe answers that — it is not the ceiling, so waiting is not the
+   * fix. Without this cap a spent credit balance would be re-asked for the full 30 minutes.
+   */
+  let ceilingProbes = 0;
+
+  /** Fatal unless it is a blip and we have not seen too many in a row. */
+  const absorb = (cause: unknown, response?: Response): AbyssalePollingError | null => {
+    const plan = planPollRetry(response, cause);
+    if (!plan) return new AbyssalePollingError(cause);
+    if (plan.probe && ++ceilingProbes > 1) return new AbyssalePollingError(cause);
+    if (++transientFailures > POLL_MAX_TRANSIENT_FAILURES) return new AbyssalePollingError(cause);
+    serverRequestedWaitMs = plan.delayMs;
+    return null;
+  };
+
   for (;;) {
-    const { data, error } = await fn();
-    if (error) throw new Error(`[abyssale] Polling failed: ${error instanceof Error ? error.message : JSON.stringify(error)}`);
-    if (!data) throw new Error("[abyssale] Polling returned empty response");
-    if (isDone(data)) return data;
-    const wait = interval + jitter();
-    if (Date.now() + wait > deadline) throw new Error("Polling timed out");
+    // A malformed or empty body makes openapi-fetch's `res.json()` THROW rather than populate
+    // `error` — a raw SyntaxError would otherwise escape a helper that promises callers can
+    // branch on `err.id`. Everything that comes out of a polling helper is an
+    // `AbyssalePollingError` with the original on `.cause`.
+    let result: { data?: T | null; error?: unknown; response?: Response };
+    let failure: AbyssalePollingError | null = null;
+    try {
+      result = await fn();
+      const { data, error } = result;
+      if (error) failure = absorb(error, result.response);
+      else if (!data) failure = new AbyssalePollingError(new Error("the API returned an empty response"));
+      else {
+        transientFailures = 0;
+        serverRequestedWaitMs = null;
+        if (isDone(data)) return data;
+      }
+    } catch (thrown) {
+      // No response to classify — a rejected or aborted fetch. Treated as transient.
+      failure = absorb(thrown, undefined);
+    }
+    if (failure) throw failure;
+    // Honour `Retry-After` when the last failure carried one, else the backoff schedule. No
+    // jitter on the server's own figure — it names a window boundary, not a contended resource.
+    const wait = serverRequestedWaitMs ?? interval + jitter();
+    if (Date.now() + wait > deadline)
+      throw new AbyssalePollingError(
+        new Error(`no result after ${Math.round(opts.timeoutMs / 1000)}s — the request may still complete`)
+      );
     await sleep(wait);
+    // The backoff advances on its own schedule, so a one-off `Retry-After` does not reset the
+    // ramp a long-running generation has already built up.
     interval = Math.min(interval * 2, opts.maxIntervalMs);
   }
 }
@@ -335,9 +518,17 @@ function resolveOpts(opts?: PollOptions): Required<PollOptions> {
  * Wait for an async generation request to complete.
  * Polls `getGenerationRequest` with exponential backoff until `is_finalized: true`.
  * Throws if the request errors or the timeout is exceeded.
+ *
+ * **Partial success resolves.** A finalized request can carry both `banners` and per-format
+ * `errors` — one format failing does not invalidate the others, so check `result.errors` if you
+ * need every requested format. Only a request that finalized with *no* banners at all and at
+ * least one error throws: that is a failed generation, and returning it as a success would leave
+ * callers iterating an empty `banners` array with nothing to indicate why.
+ *
  * @example
  * const result = await abyssale.waitForGenerationRequest(generationRequestId);
  * console.log(result.banners);
+ * if (result.errors?.length) console.warn('some formats failed:', result.errors);
  */
 function waitForGenerationRequest(
   generationRequestId: string,
@@ -347,7 +538,18 @@ function waitForGenerationRequest(
     () => abyssale.getGenerationRequest(generationRequestId),
     (data) => data.is_finalized === true,
     resolveOpts(options)
-  );
+  ).then((result) => {
+    if (result.banners?.length || !result.errors?.length) return result;
+    const reasons = result.errors
+      .map((e) => `${e.template_format_name ?? "unknown format"}: ${e.reason ?? "no reason given"}`)
+      .join("; ");
+    // `.response`/`.id` stay reserved for an actual API error body, which this is not — the poll
+    // itself answered 200. The finalized status object is reachable as `err.cause.cause` for
+    // callers that want to read `errors[]` programmatically rather than parse the message.
+    throw new AbyssalePollingError(
+      new Error(`the generation produced no banners — ${reasons}`, { cause: result })
+    );
+  });
 }
 
 /**
