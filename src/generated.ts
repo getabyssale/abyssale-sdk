@@ -1151,7 +1151,7 @@ export interface components {
              */
             name: string;
             /**
-             * @description Layer type. `group` elements are injected only on the platform advanced view (`i=advanced`); a masked group reports `group` too, with a `mask` block.
+             * @description Layer type. `container` is the design's own root wrapper, not a layer you can author or override — skip it when walking the tree. `group` elements are injected only on the platform advanced view (`i=advanced`); a masked group reports `group` too, with a `mask` block.
              * @example text
              * @enum {string}
              */
@@ -1293,7 +1293,7 @@ export interface components {
              */
             name: string;
             /**
-             * @description Layer type. Narrower than the other reads: a page belongs to a print document, so `video` and `audio` — which exist only on `animated` designs — never appear here. `group` elements are injected only on the advanced view (`i=advanced`).
+             * @description Layer type. Narrower than the other reads: a page belongs to a print document, so `video` and `audio` — which exist only on `animated` designs — never appear here. `container` is the design's own root wrapper, not a layer you can author or override — skip it when walking the tree. `group` elements are injected only on the advanced view (`i=advanced`).
              * @example text
              * @enum {string}
              */
@@ -1353,12 +1353,12 @@ export interface components {
         DesignFormatElement: {
             /**
              * @description Layer name (`root` is a special element that allows to customize the image background color.)
-             * @example root
+             * @example headline
              */
             name: string;
             /**
-             * @description Layer type
-             * @example container
+             * @description Layer type. `container` is the design's own root wrapper, not a layer you can author or override — skip it when walking the tree.
+             * @example text
              * @enum {string}
              */
             type: "container" | "text" | "button" | "image" | "logo" | "shape" | "illustration" | "rating" | "qrcode" | "video" | "audio" | "group";
