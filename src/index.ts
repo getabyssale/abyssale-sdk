@@ -114,6 +114,54 @@ const abyssale = {
    */
   verifyApiKey: () => _client.POST("/auth"),
 
+  // ── Webhook signing secret ───────────────────────────────────────────────
+
+  /**
+   * Get the workspace's webhook signing secret, creating it on the first call.
+   *
+   * One secret covers every delivery in the workspace, whether the receiver was subscribed in the
+   * dashboard or requested per job with a `callback_url`. Until this is called at least once,
+   * deliveries are **unsigned** — fetching the secret is what turns signing on.
+   *
+   * This is not the API key and cannot be swapped for one: the API key authorises calls to
+   * Abyssale and can spend credits, this secret only proves a delivery came from Abyssale. Verify
+   * with `verifyWebhookSignature` from `@abyssale/sdk/webhooks`.
+   * @example
+   * const { data, error } = await abyssale.getSigningSecret();
+   * if (!error) console.log(data.secret);
+   */
+  getSigningSecret: () => _client.GET("/signing-secret"),
+
+  /**
+   * Rotate the signing secret, keeping the previous one valid for 24 hours.
+   *
+   * During that window every delivery carries two `v1` hashes, so a receiver holding either value
+   * still verifies and you can deploy the new one on your own schedule.
+   *
+   * Rotating **again** inside that window answers `409 previous_secret_still_active` and changes
+   * nothing, because the second rotate would drop the secret your receiver is still using. Wait
+   * for the window to close, call `revokeSigningSecret` first, or pass `{ force: true }` and
+   * accept that the oldest secret stops verifying immediately.
+   * @example
+   * const { data, error } = await abyssale.rotateSigningSecret();
+   * if (error?.id === 'previous_secret_still_active') console.log('rotated too recently');
+   */
+  rotateSigningSecret: (options?: { force?: boolean }) =>
+    _client.POST("/signing-secret/rotate", {
+      // Omitted rather than sent as `force=false`, so an ordinary rotate stays a bare POST.
+      params: { query: options?.force ? { force: true } : undefined },
+    }),
+
+  /**
+   * Invalidate the previous secret immediately, ending the rotation overlap early.
+   *
+   * The compromise path, not routine hygiene: anything still signed with the old secret stops
+   * verifying at once. The current secret is left untouched.
+   * @example
+   * await abyssale.revokeSigningSecret();
+   */
+  revokeSigningSecret: () => _client.POST("/signing-secret/revoke"),
+
   // ── Designs ──────────────────────────────────────────────────────────────
 
   /**

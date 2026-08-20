@@ -2,6 +2,35 @@
 
 All notable changes to `@abyssale/sdk` are documented here.
 
+## [Unreleased]
+
+_Not published. The API surface this tracks is itself unreleased, so the version in
+`package.json` is bumped when the release goes out, not when the change lands._
+
+### Added
+
+- **Webhook signature verification** — `verifyWebhookSignature` and `signatureTimestamp`, exported
+  from a new `@abyssale/sdk/webhooks` subpath. It is a **separate entry point on purpose**:
+  importing `@abyssale/sdk` throws without `ABYSSALE_API_KEY`, and a process that only receives
+  deliveries should not have to hold a credential that can spend credits. The verifier imports
+  nothing but `node:crypto`.
+
+  Pass the **raw** body: the signature covers the bytes as sent, so a parsed-and-re-serialized
+  object reorders keys and never matches. It returns `false` and never throws on a missing,
+  malformed, forged or stale header — anyone who finds a webhook URL can POST to it, and an
+  exception in a handler is a 500 plus, on most frameworks, a retry storm. It checks **every** `v1`
+  in the header, because a rotation puts two there for 24 hours.
+- **`getSigningSecret()`, `rotateSigningSecret({ force? })`, `revokeSigningSecret()`** — the three
+  `/signing-secret` endpoints. Deliveries are unsigned until `getSigningSecret()` is called once;
+  fetching the secret is what turns signing on. `rotateSigningSecret()` surfaces a refused second
+  rotate as `error.id === 'previous_secret_still_active'` rather than throwing, in keeping with the
+  rest of the client. `force` is omitted from the query string entirely when false, so an ordinary
+  rotate stays a bare `POST`.
+- Types regenerated to cover the three endpoints and the `SigningSecret` schema.
+
+The API↔SDK version table below is unchanged: these endpoints are not in `v2026-08-20`, and it will
+be updated by the release that publishes them.
+
 ## [1.2.0] — 2026-08-20
 
 Types regenerated against API version `v2026-08-20`. Minor rather than patch because
