@@ -2,6 +2,60 @@
 
 All notable changes to `@abyssale/sdk` are documented here.
 
+## [1.2.0] — 2026-08-20
+
+Types regenerated against API version `v2026-08-20`. Minor rather than patch because
+`keyframes[].attr` changes type (see below) — the old type never matched what the API returns, but it
+is still a compile break for anyone reading it.
+
+**Full parity with the `v2026-08-20` OpenAPI spec**: every operation the spec publishes has a method
+on the client, and every request and response type is generated from the spec rather than
+hand-written. The one deliberate exception is the design-import surface (`/designs/import/json`,
+`/designs/import/json/{importId}`, `/designs/{designId}/as-import`), which is in Alpha and whose
+contract may change without notice — `scripts/fetch-spec.mjs` strips it before generation so a plain
+regeneration cannot re-introduce it.
+
+### Added
+- `code` element type — an `animated`-only custom HTML/JS layer, read-only like `container`: it carries
+  no customisable attributes, so it can never be targeted in a generation request. Added to the `type`
+  union of both `DesignElement` and the per-page print element, so exhaustive `switch`es over layer
+  types now have to handle it.
+
+### Changed
+- **`createDynamicImageUrl` body is now optional** — both flags default server-side, so
+  `createDynamicImageUrl(designId)` type-checks. The spec marks the body optional, which made
+  `operations[...]["requestBody"]` nullable; the body type is unwrapped with `NonNullable` and the
+  parameter is optional on the method.
+- **Animation keyframe `attr` is an object, not a string.** It is a map of property name to value —
+  `{"opacity": 0}` (fade), `{"left": 1021, "top": 347}` (slide, always both), `{"scale": 120}`,
+  `{"angle": -100}`, `{"volumeEffect": 0}`, `{"typewriting": 100, "textEffectType": "classic"}`.
+  Values are numbers except `textEffectType`. `DesignAnimation`'s `values` map widened accordingly.
+  **Breaking for anyone reading `keyframes[].attr` as a string** — but the previous type never matched
+  what the API returns, so that code was already broken at runtime.
+- **Per-page print attribute `value` may be an object.** `mask_properties` and `filter_properties`
+  carry a nested object (e.g. `{"radius": {"tl": 1000, ...}}`) rather than a scalar; the inner keys
+  vary by mask and filter and are not enumerated.
+- `original_visual_id` on the **synchronous** `generateImage` is documented as **not usable**: unlike
+  every other generation path, that endpoint forwards the UUID unresolved — no
+  `visual_not_found` / `not_related_to_same_template` / `not_related_to_same_format` check runs and the
+  outcome is undefined. Use `generateMultiFormatMedia` (async) for versioned regeneration. On the async
+  paths the field is documented properly: the request must target exactly one format, or it answers
+  `400 more_than_one_format`.
+- `exportBanners`: a request mixing known and unknown ids **succeeds**, and the archive contains only
+  the ids that were found. `404 visual_not_found` means *none* of them existed.
+- `ErrorResponse.message`: when a payload has a single problem the message is that problem's own text
+  prefixed with its `path` (`name: Missing data for required field.`), so `errors` need not be read to
+  learn which field was rejected; it falls back to a generic sentence only when several problems
+  disagree. Still prose — branch on `id`.
+- Dynamic image URLs: production mode is documented as *not* unlimited — the global 10 req/s ceiling,
+  workspace credits and bandwidth all still apply, and bandwidth counts cache hits.
+  `enable_rate_limit` counts 5 generations per 24 h from a hash of IP + `User-Agent`, and cached
+  responses do not count. A non-`static` design answers `400 template_not_static`; a design not in the
+  `CREATED` status answers `400 template_not_active`.
+- `Design.category_name` mirrors `project_name` on **every** read (both come from the same underlying
+  row), and is `null` when the design is in no project — the previous note about the two diverging on a
+  single-design read was wrong. It stays deprecated: read `project_name`.
+
 ## [1.1.0] — 2026-08-17
 
 ### Added

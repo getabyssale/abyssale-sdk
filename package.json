@@ -1,6 +1,6 @@
 {
   "name": "@abyssale/sdk",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Official Node.js/TypeScript SDK for programmatic image generation, animated banners, and print-ready PDFs via the Abyssale API",
   "type": "module",
   "main": "./dist/index.cjs",
