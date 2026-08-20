@@ -46,6 +46,25 @@ timeout and the automatic retries. Retries are deliberately narrow — reads onl
 only when the response carries `Retry-After`. The reasoning is on the
 [SDK reference](https://developers.abyssale.com/sdks/nodejs#retries-and-timeouts).
 
+## API compatibility
+
+Every type in the SDK is generated from the Abyssale OpenAPI spec, so each release is pinned to the
+API version it was generated against.
+
+| SDK version | API version   |
+| ----------- | ------------- |
+| 1.2.0       | `v2026-08-20` |
+
+**1.2.0 is at full parity with `v2026-08-20`**: every operation the spec publishes has a method on
+the client. The one deliberate exception is the design-import surface (`/designs/import/json`,
+`/designs/import/json/{importId}`, `/designs/{designId}/as-import`), which is in Alpha and whose
+contract may change without notice — [`scripts/fetch-spec.mjs`](./scripts/fetch-spec.mjs) strips it
+before generation so a regeneration cannot re-introduce it.
+
+Only the latest API version is served, so only the latest SDK release is supported — upgrade with the
+API. Responses carry the live API version in their top-level `version` field; match the `vYYYY-MM-DD`
+shape rather than pinning a literal.
+
 ## Runnable examples
 
 See [`examples/`](./examples) — synchronous generation, async multi-format with polling, the same
