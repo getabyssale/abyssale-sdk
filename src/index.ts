@@ -39,8 +39,11 @@ type GenerateMultiPagePdfBody =
   operations["generateMultiPagePdf"]["requestBody"]["content"]["application/json"];
 type ExportBannersBody =
   operations["exportBanners"]["requestBody"]["content"]["application/json"];
-type CreateDynamicImageUrlBody =
-  operations["createDynamicImageUrl"]["requestBody"]["content"]["application/json"];
+// The spec marks this body optional (both flags default server-side), so the operation type is
+// `{ content: ... } | undefined` — unwrap it and keep the parameter optional on the method instead.
+type CreateDynamicImageUrlBody = NonNullable<
+  operations["createDynamicImageUrl"]["requestBody"]
+>["content"]["application/json"];
 type CreateProjectBody =
   operations["createProject"]["requestBody"]["content"]["application/json"];
 type DuplicateWorkspaceTemplateBody =
@@ -284,7 +287,7 @@ const abyssale = {
    *   enable_production_mode: true,
    * });
    */
-  createDynamicImageUrl: (designId: string, body: CreateDynamicImageUrlBody) =>
+  createDynamicImageUrl: (designId: string, body?: CreateDynamicImageUrlBody) =>
     _client.POST("/designs/{designId}/dynamic-image-url", {
       params: { path: { designId } },
       body,

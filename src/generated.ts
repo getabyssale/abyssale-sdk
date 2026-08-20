@@ -157,7 +157,7 @@ export interface paths {
         put?: never;
         /**
          * Create a dynamic image URL
-         * @description Creates a dynamic image URL for a given design (`static` designs only). Only one dynamic image is allowed per design — subsequent calls return the existing dynamic image (200 instead of 201). `enable_rate_limit` limits each visitor (IP + browser fingerprint) to 5 distinct variants per 24 h. `enable_production_mode` switches from test mode (variants saved to the workspace, server-side cache, 10 req/s per image) to production mode (built for scale: unlimited, unthrottled generation — only workspace credits and bandwidth apply; variants not saved, every request rendered fresh).
+         * @description Creates a dynamic image URL for a given design (`static` designs only). Only one dynamic image is allowed per design — subsequent calls return the existing dynamic image (200 instead of 201). `enable_rate_limit` limits each visitor to 5 generations per 24 h, counted from a hash of IP + `User-Agent`; requests answered from cache do not count against it. `enable_production_mode` switches from test mode (variants saved to the workspace, 10 req/s per image) to production mode (built for scale: no per-image throttle, variants not saved). Production mode is not unlimited — the global 10 requests/second ceiling, your workspace credits and your bandwidth all still apply, and bandwidth is measured on every delivery including cache hits. A non-`static` design answers `400 template_not_static`, and a design that is not in the `CREATED` status answers `400 template_not_active`.
          */
         post: operations["createDynamicImageUrl"];
         delete?: never;
@@ -552,8 +552,8 @@ export interface components {
          *     variant. `id` and `message` are always present; `errors` appears only when there is
          *     field-level detail to give.
          * @example {
-         *       "id": "invalid_payload",
-         *       "message": "One or more request fields are invalid.",
+         *       "id": "out_of_range",
+         *       "message": "formats[0].width: Must be greater than or equal to 1 and less than or equal to 5000.",
          *       "errors": [
          *         {
          *           "path": "formats[0].width",
@@ -569,7 +569,15 @@ export interface components {
          *     }
          */
         ErrorResponse: {
-            /** @description Human-readable error message. */
+            /**
+             * @description Human-readable error message. Prose, not a contract — branch on `id`, never on this.
+             *
+             *     It is meant to stand on its own, so when the failure comes down to a SINGLE problem
+             *     the message is that problem's own text prefixed with its `path`
+             *     (`name: Missing data for required field.`) — you do not have to read `errors` to
+             *     learn which field was rejected. When several problems disagree it falls back to a
+             *     generic sentence and `errors` carries the detail.
+             */
             message: string;
             /**
              * @description Machine-readable error code. Branch on this rather than on `message`, which is prose
@@ -672,7 +680,7 @@ export interface components {
          *
          *     The value changes when a new version is released. Match the `vYYYY-MM-DD` shape rather than
          *     pinning today's literal, or your client breaks on the next release.
-         * @example v2026-08-17
+         * @example v2026-08-20
          */
         ApiVersion: string;
         /**
@@ -917,7 +925,7 @@ export interface components {
             category_id?: string | null;
             /**
              * @deprecated
-             * @description Deprecated, superseded by `project_name`. On the `GET /designs` listing it mirrors `project_name`; on a single-design read it is whatever the platform stored on the row and may be `null` or differ. `category_*` names the grouping of a WORKSPACE TEMPLATE — a design belongs to a project, so read `project_name`.
+             * @description Deprecated, superseded by `project_name`, which it mirrors on every read — the platform reads both from the same `company_template_category` row, the table that holds projects. `null` when the design is in no project. `category_*` names the grouping of a WORKSPACE TEMPLATE — a design belongs to a project, so read `project_name`.
              * @example Fall campaigns
              */
             category_name?: string | null;
@@ -1151,11 +1159,11 @@ export interface components {
              */
             name: string;
             /**
-             * @description Layer type. `container` is the design's own root wrapper, not a layer you can author or override — skip it when walking the tree. `group` elements are injected only on the platform advanced view (`i=advanced`); a masked group reports `group` too, with a `mask` block.
+             * @description Layer type. `container` is the design's own root wrapper, not a layer you can author or override — skip it when walking the tree. `group` elements are injected only on the platform advanced view (`i=advanced`); a masked group reports `group` too, with a `mask` block. `code` is listed last because it is marginal: a custom HTML/JS layer that exists only on `animated` designs, read-only like `container` — it carries no customisable attributes, so it can never be targeted in a generation request.
              * @example text
              * @enum {string}
              */
-            type: "container" | "text" | "button" | "image" | "logo" | "shape" | "illustration" | "rating" | "qrcode" | "video" | "audio" | "group";
+            type: "container" | "text" | "button" | "image" | "logo" | "shape" | "illustration" | "rating" | "qrcode" | "video" | "audio" | "group" | "code";
             /** @description The element's box, **keyed by format name**. */
             layout?: {
                 [key: string]: components["schemas"]["ElementLayout"];
@@ -1193,8 +1201,16 @@ export interface components {
                     /** @enum {string} */
                     type?: "slide" | "fade" | "scale" | "rotate" | "audioFade" | "textEffect";
                     keyframes?: ({
-                        /** @example opacity */
-                        attr?: string;
+                        /**
+                         * @description The properties this keyframe sets, as a map of property name to value: `{"opacity": 0}` (fade), `{"left": 1021, "top": 347}` (slide — always both), `{"scale": 120}` (scale), `{"angle": -100}` (rotate), `{"volumeEffect": 0}` (audioFade), `{"typewriting": 100, "textEffectType": "classic"}` (textEffect). Values are numbers, except `textEffectType` which is a string.
+                         * @example {
+                         *       "left": 1021,
+                         *       "top": 347
+                         *     }
+                         */
+                        attr?: {
+                            [key: string]: unknown;
+                        };
                         data?: {
                             /** @example start */
                             type?: string;
@@ -1224,7 +1240,9 @@ export interface components {
                  *     }
                  */
                 values: {
-                    [key: string]: string | number | boolean;
+                    [key: string]: string | number | boolean | {
+                        [key: string]: unknown;
+                    };
                 };
             }[];
         };
@@ -1324,8 +1342,13 @@ export interface components {
                     id?: string;
                     /** @example Text content (i.e. Lorem ipsum) */
                     help?: string;
-                    /** @example Spring Catalogue */
-                    value?: string | number | boolean;
+                    /**
+                     * @description The attribute's single value on this page. `mask_properties` and `filter_properties` carry an **object** rather than a scalar (e.g. `{"radius": {"tl": 1000, "tr": 1000, "bl": 1000, "br": 1000}}`); their inner keys vary by mask and filter and are not enumerated here.
+                     * @example Spring Catalogue
+                     */
+                    value?: string | number | boolean | {
+                        [key: string]: unknown;
+                    };
                 };
             };
             /** @description The element's box on this page, in the document's unit. */
@@ -1357,11 +1380,11 @@ export interface components {
              */
             name: string;
             /**
-             * @description Layer type. `container` is the design's own root wrapper, not a layer you can author or override — skip it when walking the tree.
+             * @description Layer type. `container` is the design's own root wrapper, not a layer you can author or override — skip it when walking the tree. `code`, listed last, is a marginal `animated`-only custom HTML/JS layer, read-only in the same way.
              * @example text
              * @enum {string}
              */
-            type: "container" | "text" | "button" | "image" | "logo" | "shape" | "illustration" | "rating" | "qrcode" | "video" | "audio" | "group";
+            type: "container" | "text" | "button" | "image" | "logo" | "shape" | "illustration" | "rating" | "qrcode" | "video" | "audio" | "group" | "code";
             settings?: {
                 /**
                  * @description Whether the element is mandatory
@@ -2615,7 +2638,7 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody: {
+        requestBody?: {
             content: {
                 /**
                  * @example {
@@ -2949,7 +2972,7 @@ export interface operations {
                     pages?: components["schemas"]["Pages"];
                     /**
                      * Format: uuid
-                     * @description UUID of the original visual this generation is based on.
+                     * @description Regenerate an existing visual in place, keeping its share URL (visual versioning). The request must target exactly ONE format — combining this with more than one `template_format_names` entry answers `400 more_than_one_format`. Unknown or unrelated visuals answer 404 (`visual_not_found`, `not_related_to_same_template`, `not_related_to_same_format`).
                      */
                     original_visual_id?: string;
                 };
@@ -3090,7 +3113,7 @@ export interface operations {
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
-            /** @description None of the `banner_ids` exist in this workspace (`visual_not_found`). An id that is not a valid UUID answers `endpoint_not_found` instead. */
+            /** @description None of the ids in `ids` exist in this workspace (`visual_not_found`). A request mixing known and unknown ids SUCCEEDS, and the archive contains only the ones that were found. An id that is not a valid UUID answers `endpoint_not_found` instead. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -3152,7 +3175,13 @@ export interface operations {
                     };
                     /**
                      * Format: uuid
-                     * @description UUID of the original visual this generation is based on.
+                     * @description **Do not use — visual versioning is not wired on this endpoint yet.** Every
+                     *     other generation path resolves this UUID to an internal visual id and checks
+                     *     it belongs to the same design and format; this one does not, so the raw UUID
+                     *     is forwarded unresolved, no `visual_not_found` /
+                     *     `not_related_to_same_template` / `not_related_to_same_format` check runs, and
+                     *     the outcome is undefined. Use
+                     *     `POST /async/banner-builder/{designId}/generate` for versioned regeneration.
                      */
                     original_visual_id?: string;
                 };

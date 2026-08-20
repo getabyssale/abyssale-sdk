@@ -65,4 +65,5 @@ Architecture, conventions and the type-generation workflow are in [`AGENTS.md`](
 - [SDK reference](https://developers.abyssale.com/sdks/nodejs) — the canonical documentation
 - [Developer hub](https://developers.abyssale.com)
 - [API reference](https://api-reference.abyssale.com/)
+- [Abyssale](https://www.abyssale.com)
 - [Changelog](./CHANGELOG.md)

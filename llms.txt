@@ -14,7 +14,9 @@ images, colors, and other properties dynamically.
 It provides a zero-config singleton with 20 typed methods covering the full API surface,
 plus built-in polling helpers with exponential backoff. Configuration is done via the
 `ABYSSALE_API_KEY` environment variable. The SDK ships as dual ESM/CJS with full
-TypeScript types generated from the OpenAPI spec.
+TypeScript types generated from the OpenAPI spec. Version 1.2.0 tracks API version
+`v2026-08-20` and covers every operation that spec publishes, except the Alpha design-import
+endpoints, which are deliberately excluded while their contract can still change.
 
 ## Installation
 
@@ -41,7 +43,7 @@ Set the environment variable `ABYSSALE_API_KEY` to your Abyssale API key.
 - `listProjects()` — List all projects in the workspace
 - `createProject(body)` — Create a new project to organise designs
 - `exportBanners(body)` — Asynchronously package a set of banners into a ZIP archive for download
-- `createDynamicImageUrl(designId, body)` — Create a live image URL that renders on-the-fly from query parameters
+- `createDynamicImageUrl(designId, body?)` — Create a live image URL that renders on-the-fly from query parameters; the body is optional, both flags default server-side
 - `listWorkspaceTemplates(query?)` — List organisation-level master designs, with optional filtering by category or type
 - `listWorkspaceTemplateCategories()` — List the categories that group workspace templates
 - `duplicateWorkspaceTemplate(companyTemplateId, body)` — Copy a shared workspace template into a project
@@ -72,3 +74,4 @@ Set the environment variable `ABYSSALE_API_KEY` to your Abyssale API key.
 - Developer hub: https://developers.abyssale.com
 - npm package: https://www.npmjs.com/package/@abyssale/sdk
 - GitHub repository: https://github.com/getabyssale/abyssale-sdk
+- Abyssale website: https://www.abyssale.com
