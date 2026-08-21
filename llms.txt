@@ -14,8 +14,8 @@ images, colors, and other properties dynamically.
 It provides a zero-config singleton with 23 typed methods covering the full API surface,
 plus built-in polling helpers with exponential backoff. Configuration is done via the
 `ABYSSALE_API_KEY` environment variable. The SDK ships as dual ESM/CJS with full
-TypeScript types generated from the OpenAPI spec. Version 1.2.0 tracks API version
-`v2026-08-20` and covers every operation that spec publishes, except the Alpha design-import
+TypeScript types generated from the OpenAPI spec. Version 1.3.0 tracks API version
+`v2026-08-21` and covers every operation that spec publishes, except the Alpha design-import
 endpoints, which are deliberately excluded while their contract can still change.
 
 ## Installation
@@ -50,7 +50,7 @@ Set the environment variable `ABYSSALE_API_KEY` to your Abyssale API key.
 - `getDuplicationRequest(duplicateRequestId)` — Poll the status of a template duplication request
 - `getSigningSecret()` — Get the workspace's webhook signing secret, minting it on the first call; deliveries are unsigned until it is called once
 - `rotateSigningSecret(options?)` — Rotate the signing secret, keeping the previous one valid 24 h; a second rotate inside that window answers `409 previous_secret_still_active` unless `{ force: true }`
-- `revokeSigningSecret()` — Invalidate the previous secret immediately, ending the rotation overlap; the compromise path, not routine hygiene
+- `revokeSigningSecret()` — Invalidate the previous secret, ending the rotation overlap; the compromise path, not routine hygiene. Takes effect within 60 seconds, not instantly — the signing side caches secrets for a minute
 - `verifyWebhookSignature({ body, header, secret, toleranceSeconds?, nowSeconds? })` — Verify an inbound delivery's `X-Abyssale-Signature`; imported from the `@abyssale/sdk/webhooks` subpath, which needs no API key. HMAC-SHA256 over `"v1:webhook:" + t + "." + raw_body`. Pass the RAW body — a re-serialized object never matches. Returns false, never throws, on any malformed or forged header, and checks every `v1` (a rotation sends two). Deduplicate on `X-Abyssale-Delivery-Id`, 64 lowercase hex, stable across all six attempts (one delivery plus up to five retries)
 - `signatureTimestamp(header)` — The signature's `t` in seconds, or null; the only signed time in a delivery
 

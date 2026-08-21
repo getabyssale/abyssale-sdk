@@ -347,8 +347,9 @@ export interface paths {
          *     and ready-made verification snippets are in the **Webhooks** section of the introduction.
          *     Keep it server-side: a signature computed in a browser is a secret you have published.
          *
-         *     > A workspace that has never called this endpoint receives **unsigned** deliveries. Fetching
-         *     > the secret is what turns signing on.
+         *     > A workspace with no secret receives **unsigned** deliveries; the secret coming into
+         *     > existence is what turns signing on. This endpoint is the normal way to create it, but
+         *     > `rotate` and `revoke` mint one too if none exists.
          */
         get: operations["getSigningSecret"];
         put?: never;
@@ -408,9 +409,10 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * End the rotation overlap immediately
-         * @description Invalidate the **previous** secret now, ending the 24-hour overlap early. The current secret
-         *     is untouched.
+         * End the rotation overlap early
+         * @description Invalidate the **previous** secret, ending the 24-hour overlap early. The current secret is
+         *     untouched. Signing applies the change within **60 seconds** — deliveries already in flight
+         *     may still carry a signature from the revoked secret for up to a minute.
          *
          *     Use it after a rotation prompted by a leak rather than by routine hygiene. Note what it does
          *     and does not achieve for webhooks: **you** are the verifier, so a forged request stops being
@@ -418,10 +420,12 @@ export interface paths {
          *     not wait on us. This endpoint closes the window on our side, which matters because we keep
          *     signing with the old secret until it lapses.
          *
-         *     Deliberately abrupt: anything still signed with the old secret stops verifying at once, so a
-         *     receiver you have not yet redeployed will start rejecting deliveries.
+         *     Deliberately abrupt: within a minute, anything still signed with the old secret stops
+         *     verifying, so a receiver you have not yet redeployed will start rejecting deliveries.
          *
-         *     Takes no request body, and is safe to call when there is no overlap to end.
+         *     Takes no request body, and is safe to call when there is no overlap to end. Like `rotate`, it
+         *     **mints a secret if the workspace has none** — so calling it on a workspace that never
+         *     enabled signing turns signing on.
          */
         post: operations["revokeSigningSecret"];
         delete?: never;
@@ -782,7 +786,7 @@ export interface components {
              * @description Unix second the secret was first issued.
              * @example 1755561234
              */
-            created_at_ts?: number;
+            created_at_ts: number;
             /**
              * @description Unix second of the most recent rotation, or `null` if the secret has never been rotated.
              * @example null
@@ -814,7 +818,7 @@ export interface components {
          *
          *     The value changes when a new version is released. Match the `vYYYY-MM-DD` shape rather than
          *     pinning today's literal, or your client breaks on the next release.
-         * @example v2026-08-20
+         * @example v2026-08-21
          */
         ApiVersion: string;
         /**

@@ -2,10 +2,10 @@
 
 All notable changes to `@abyssale/sdk` are documented here.
 
-## [Unreleased]
+## [1.3.0] — 2026-08-21
 
-_Not published. The API surface this tracks is itself unreleased, so the version in
-`package.json` is bumped when the release goes out, not when the change lands._
+Types regenerated against API version `v2026-08-21`. Minor, not patch: three new methods and a new
+package export. Nothing existing changed shape, so there is no upgrade step beyond installing it.
 
 ### Added
 
@@ -27,9 +27,6 @@ _Not published. The API surface this tracks is itself unreleased, so the version
   rest of the client. `force` is omitted from the query string entirely when false, so an ordinary
   rotate stays a bare `POST`.
 - Types regenerated to cover the three endpoints and the `SigningSecret` schema.
-
-The API↔SDK version table below is unchanged: these endpoints are not in `v2026-08-20`, and it will
-be updated by the release that publishes them.
 
 ## [1.2.0] — 2026-08-20
 

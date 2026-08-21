@@ -141,7 +141,7 @@ const abyssale = {
    * Rotating **again** inside that window answers `409 previous_secret_still_active` and changes
    * nothing, because the second rotate would drop the secret your receiver is still using. Wait
    * for the window to close, call `revokeSigningSecret` first, or pass `{ force: true }` and
-   * accept that the oldest secret stops verifying immediately.
+   * accept that the oldest secret stops verifying within a minute.
    * @example
    * const { data, error } = await abyssale.rotateSigningSecret();
    * if (error?.id === 'previous_secret_still_active') console.log('rotated too recently');
@@ -153,10 +153,12 @@ const abyssale = {
     }),
 
   /**
-   * Invalidate the previous secret immediately, ending the rotation overlap early.
+   * Invalidate the previous secret, ending the rotation overlap early.
    *
    * The compromise path, not routine hygiene: anything still signed with the old secret stops
-   * verifying at once. The current secret is left untouched.
+   * verifying **within 60 seconds** — not instantly, because the signing side caches secrets for
+   * up to a minute. The current secret is left untouched. You are the verifier, so dropping the
+   * old secret from your own config is what closes a leak; do not wait on this call.
    * @example
    * await abyssale.revokeSigningSecret();
    */
