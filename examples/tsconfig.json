@@ -12,7 +12,8 @@
     "types": ["node"],
     "baseUrl": ".",
     "paths": {
-      "@abyssale/sdk": ["../src/index.ts"]
+      "@abyssale/sdk": ["../src/index.ts"],
+      "@abyssale/sdk/webhooks": ["../src/webhooks.ts"]
     }
   },
   "include": ["*.ts"]

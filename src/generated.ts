@@ -327,6 +327,113 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/signing-secret": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the webhook signing secret
+         * @description Retrieve the workspace's webhook signing secret, creating it on the first call and returning
+         *     the same value on every call after that.
+         *
+         *     One secret covers every webhook in the workspace — dashboard subscriptions and per-job
+         *     `callback_url` deliveries alike. Fetch it once at setup and store it with your other
+         *     credentials.
+         *
+         *     Use it to verify the `X-Abyssale-Signature` header on incoming deliveries; the header format
+         *     and ready-made verification snippets are in the **Webhooks** section of the introduction.
+         *     Keep it server-side: a signature computed in a browser is a secret you have published.
+         *
+         *     > A workspace with no secret receives **unsigned** deliveries; the secret coming into
+         *     > existence is what turns signing on. This endpoint is the normal way to create it, but
+         *     > `rotate` and `revoke` mint one too if none exists.
+         */
+        get: operations["getSigningSecret"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/signing-secret/rotate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Rotate the webhook signing secret
+         * @description Issue a new signing secret and keep the previous one valid for **24 hours**.
+         *
+         *     During that window every delivery carries **two** `v1` hashes — one per secret — so a
+         *     receiver holding either value still verifies. That is what lets you deploy the new secret on
+         *     your own schedule instead of coordinating a cutover.
+         *
+         *     Keep accepting the old secret for a few minutes after you switch: retries already in flight
+         *     were signed before you deployed.
+         *
+         *     Takes no request body. If the workspace has no secret yet, one is created and immediately
+         *     rotated, so the response always carries a usable value.
+         *
+         *     **Calling this twice in a row is refused.** A second rotate while the previous secret is
+         *     still inside its 24-hour window would demote the secret the first rotate minted and drop the
+         *     one your receiver is still verifying with — the outage the window exists to prevent. You get
+         *     `409 previous_secret_still_active`, and nothing changes. Either wait for the window to close
+         *     (`previous_secret_expires_at_ts` from the first response tells you when), call
+         *     `POST /signing-secret/revoke` to end the overlap now and rotate immediately after, or repeat
+         *     the call with `?force=true` if you really do mean to rotate twice and accept that anything
+         *     signed with the oldest secret stops verifying.
+         */
+        post: operations["rotateSigningSecret"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/signing-secret/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * End the rotation overlap early
+         * @description Invalidate the **previous** secret, ending the 24-hour overlap early. The current secret is
+         *     untouched. Signing applies the change within **60 seconds** — deliveries already in flight
+         *     may still carry a signature from the revoked secret for up to a minute.
+         *
+         *     Use it after a rotation prompted by a leak rather than by routine hygiene. Note what it does
+         *     and does not achieve for webhooks: **you** are the verifier, so a forged request stops being
+         *     accepted the moment you deploy a receiver that no longer trusts the old secret — that does
+         *     not wait on us. This endpoint closes the window on our side, which matters because we keep
+         *     signing with the old secret until it lapses.
+         *
+         *     Deliberately abrupt: within a minute, anything still signed with the old secret stops
+         *     verifying, so a receiver you have not yet redeployed will start rejecting deliveries.
+         *
+         *     Takes no request body, and is safe to call when there is no overlap to end. Like `rotate`, it
+         *     **mints a secret if the workspace has none** — so calling it on a workspace that never
+         *     enabled signing turns signing on.
+         */
+        post: operations["revokeSigningSecret"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/fonts": {
         parameters: {
             query?: never;
@@ -637,7 +744,8 @@ export interface components {
              *     no 403 in this API.
              *
              *     **The resource is in the wrong state for this call.** Read it back to find out which:
-             *     `template_import_already_processed`, `project_already_exists`, `template_not_active`.
+             *     `template_import_already_processed`, `project_already_exists`, `template_not_active`,
+             *     `previous_secret_still_active`.
              *
              *     **Valid request, unrenderable content.** The engine accepted the call and then
              *     refused the artwork — most often text that cannot fit its layer:
@@ -666,6 +774,36 @@ export interface components {
             errors?: components["schemas"]["Problem"][];
             version?: components["schemas"]["ApiVersion"];
         };
+        /** @description The workspace's webhook signing secret and the state of any rotation in progress. */
+        SigningSecret: {
+            /**
+             * @description The secret to verify `X-Abyssale-Signature` with. Prefixed `whsec_` so it is
+             *     recognisable if it turns up somewhere it should not.
+             * @example whsec_2f1a8c4e6b9d0a7c3e5f8b1d4a6c9e2f0b3d5a7c1e4f6b8d0a2c5e7f9b1d3a5c
+             */
+            secret: string;
+            /**
+             * @description Unix second the secret was first issued.
+             * @example 1755561234
+             */
+            created_at_ts: number;
+            /**
+             * @description Unix second of the most recent rotation, or `null` if the secret has never been rotated.
+             * @example null
+             */
+            rotated_at_ts?: number | null;
+            /**
+             * @description When the previous secret stops being honoured — 24 hours after the rotation that
+             *     demoted it. `null` when there is no overlap in progress, either because nothing was
+             *     rotated, because the window has lapsed, or because it was ended with
+             *     `POST /signing-secret/revoke`.
+             *
+             *     While this is set, deliveries carry **two** `v1` hashes and a receiver holding either
+             *     secret verifies. The previous secret's value is never returned — only its expiry.
+             * @example null
+             */
+            previous_secret_expires_at_ts?: number | null;
+        };
         /**
          * @description The API version that produced this response, named by release date (`vYYYY-MM-DD`).
          *     Stamped as a top-level field on JSON object bodies, success and error alike, so a client
@@ -680,7 +818,7 @@ export interface components {
          *
          *     The value changes when a new version is released. Match the `vYYYY-MM-DD` shape rather than
          *     pinning today's literal, or your client breaks on the next release.
-         * @example v2026-08-20
+         * @example v2026-08-21
          */
         ApiVersion: string;
         /**
@@ -3033,6 +3171,96 @@ export interface operations {
                         company?: string;
                         version?: components["schemas"]["ApiVersion"];
                     };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getSigningSecret: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The workspace's signing secret. */
+            200: {
+                headers: {
+                    "X-RateLimit-Limit": components["headers"]["XRateLimitLimit"];
+                    "X-RateLimit-Remaining": components["headers"]["XRateLimitRemaining"];
+                    "X-RateLimit-Reset": components["headers"]["XRateLimitReset"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SigningSecret"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    rotateSigningSecret: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Rotate even though the previous secret is still valid, revoking it. Only needed to
+                 *     override the `409` above; a first rotate never needs it.
+                 */
+                force?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The new secret. The previous one stays valid for 24 hours. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SigningSecret"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /**
+             * @description Conflict — the previous secret is still within its grace window, so rotating would
+             *     revoke it. Nothing changed. Retry with `?force=true` to rotate anyway.
+             */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    revokeSigningSecret: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The current secret. Any previous secret is no longer valid. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SigningSecret"];
                 };
             };
             401: components["responses"]["Unauthorized"];
