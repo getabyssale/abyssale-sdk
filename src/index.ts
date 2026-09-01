@@ -16,6 +16,9 @@ export type WorkspaceTemplate = components["schemas"]["WorkspaceTemplate"];
 export type WorkspaceTemplateCategory =
   components["schemas"]["WorkspaceTemplateCategory"];
 export type Font = components["schemas"]["Font"];
+export type CreditsBalance = components["schemas"]["CreditsBalance"];
+/** One balance — `available`/`limit` are `null` on an unlimited plan. */
+export type CreditBlock = components["schemas"]["CreditBlock"];
 export type ProjectSummary = components["schemas"]["ProjectSummary"];
 export type GenerationRequestStatus =
   components["schemas"]["GenerationRequestStatus"];
@@ -295,6 +298,22 @@ const abyssale = {
    * Use a font's `id` to override the font in a generation request.
    */
   listFonts: () => _client.GET("/fonts"),
+
+  // ── Credits ───────────────────────────────────────────────────────────────
+
+  /**
+   * Read the workspace's remaining generation and AI credits for the current
+   * billing period. Costs no credits itself.
+   *
+   * `available` and `limit` are `null` on an unlimited plan, so check for `null`
+   * before comparing numbers. `available` counts the recurring allowance only —
+   * what a request can still spend is `available + extra`.
+   * @example
+   * const { data } = await abyssale.getCredits();
+   * const gen = data?.generation_credits;
+   * console.log(gen?.available === null ? 'unlimited' : gen!.available + gen!.extra);
+   */
+  getCredits: () => _client.GET("/credits"),
 
   // ── Projects ──────────────────────────────────────────────────────────────
 
