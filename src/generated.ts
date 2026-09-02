@@ -251,7 +251,7 @@ export interface paths {
          *
          *     **`static` designs only.** An `animated`, `printer` or `printer_multipage` design answers
          *     `400` with `id: template_not_static` — use
-         *     [asynchronous generation](#tag/Asset-Generation/operation/generateMultiFormatMedia)
+         *     [asynchronous generation](/api-reference/generateMultiFormatMedia)
          *     instead. This is a property of the endpoint, not of your plan: a video or a print PDF
          *     cannot be produced inside a synchronous request, so there is no combination of parameters
          *     that makes this work.
@@ -2238,7 +2238,7 @@ export interface components {
          * Format: uuid
          * @description **Force a specific font by ID**. *Example: 6156907e-33c5-11ea-9877-92672c1b8195*
          *
-         *     The fonts list is available by calling the [GET /fonts](#tag/Fonts) API route.
+         *     The fonts list is available by calling the [GET /fonts](/api-reference/#fonts) API route.
          */
         fontId: string;
         /**
@@ -3204,7 +3204,7 @@ export interface operations {
                         color_profile?: string;
                         display_crop_marks?: boolean;
                     };
-                    /** @description **`printer_multipage` designs only**, where it replaces `elements`: a multipage design is one document with no formats, so content is addressed per page. Ignored on every other design type. The dedicated [multipage PDF operation](#tag/Asset-Generation/operation/generateMultiPagePdf) takes the same field and is the clearer choice for print output; this one exists so a `printer_multipage` design can also be driven through the generic async endpoint. */
+                    /** @description **`printer_multipage` designs only**, where it replaces `elements`: a multipage design is one document with no formats, so content is addressed per page. Ignored on every other design type. The dedicated [multipage PDF operation](/api-reference/generateMultiPagePdf) takes the same field and is the clearer choice for print output; this one exists so a `printer_multipage` design can also be driven through the generic async endpoint. */
                     pages?: components["schemas"]["Pages"];
                     /**
                      * Format: uuid
