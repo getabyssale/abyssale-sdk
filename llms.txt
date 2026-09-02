@@ -11,11 +11,11 @@ images, colors, and other properties dynamically.
 ## What is this SDK?
 
 `@abyssale/sdk` is the official Node.js / TypeScript SDK for the Abyssale REST API.
-It provides a zero-config singleton with 23 typed methods covering the full API surface,
+It provides a zero-config singleton with 24 typed methods covering the full API surface,
 plus built-in polling helpers with exponential backoff. Configuration is done via the
 `ABYSSALE_API_KEY` environment variable. The SDK ships as dual ESM/CJS with full
-TypeScript types generated from the OpenAPI spec. Version 1.3.0 tracks API version
-`v2026-08-21` and covers every operation that spec publishes, except the Alpha design-import
+TypeScript types generated from the OpenAPI spec. Version 1.4.0 tracks API version
+`v2026-09-02` and covers every operation that spec publishes, except the Alpha design-import
 endpoints, which are deliberately excluded while their contract can still change.
 
 ## Installation
@@ -40,6 +40,7 @@ Set the environment variable `ABYSSALE_API_KEY` to your Abyssale API key.
 - `waitForDuplicationRequest(duplicateRequestId, options?)` — Poll template duplication until COMPLETED or ERROR
 - `getFile(bannerId)` — Retrieve metadata and CDN download URL for a generated file
 - `listFonts()` — List all fonts available in the workspace (Google Fonts + custom uploads)
+- `getCredits()` — Read the workspace's remaining generation and AI credits for the current billing period; costs no credits. `available`/`limit` are `null` on an unlimited plan, and `available` counts the recurring allowance only — what a request can spend is `available + extra`
 - `listProjects()` — List all projects in the workspace
 - `createProject(body)` — Create a new project to organise designs
 - `exportBanners(body)` — Asynchronously package a set of banners into a ZIP archive for download

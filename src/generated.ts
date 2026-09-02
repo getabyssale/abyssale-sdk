@@ -4,6 +4,52 @@
  */
 
 export interface paths {
+    "/auth": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Verify an API key
+         * @description Check that an API key is usable, and find out which workspace it belongs to.
+         *
+         *     This is the endpoint to call when you want to confirm a key works — it runs the whole
+         *     authentication path and answers `200` only if **all** of the following hold:
+         *
+         *     - the key exists,
+         *     - it is still active (a revoked key answers `401`),
+         *     - and, **for a workspace key**, the plan includes API access (`401 api_access_denied`
+         *       otherwise).
+         *
+         *     The plan check is skipped for a **user-scoped** key, which therefore answers `200` here
+         *     whatever the plan. That is not a loophole: a user key is confined to the plugin surface,
+         *     so a `200` from this endpoint means "this key is live", not "this key can generate". If
+         *     you need to know whether a key can drive the API, call a real endpoint with it.
+         *
+         *     Every failure is a **`401`**, whether the key is unknown, revoked, or on a plan without
+         *     API access. This endpoint does not answer `403`.
+         *
+         *     The response carries the workspace name, so a caller holding several keys can tell which
+         *     one it has. Integration platforms use it to label a connection.
+         *
+         *     > **Do not use `GET /ready` to test a key.** It is a service health check and is exempt
+         *     > from authentication, so it answers `200` regardless of the key you send — including one
+         *     > that has been revoked.
+         *
+         *     Takes no request body. It is a `POST` for historical reasons; live integrations depend on
+         *     the current shape, so it will not be changed.
+         */
+        post: operations["verifyApiKey"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/designs": {
         parameters: {
             query?: never;
@@ -281,52 +327,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/auth": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Verify an API key
-         * @description Check that an API key is usable, and find out which workspace it belongs to.
-         *
-         *     This is the endpoint to call when you want to confirm a key works — it runs the whole
-         *     authentication path and answers `200` only if **all** of the following hold:
-         *
-         *     - the key exists,
-         *     - it is still active (a revoked key answers `401`),
-         *     - and, **for a workspace key**, the plan includes API access (`401 api_access_denied`
-         *       otherwise).
-         *
-         *     The plan check is skipped for a **user-scoped** key, which therefore answers `200` here
-         *     whatever the plan. That is not a loophole: a user key is confined to the plugin surface,
-         *     so a `200` from this endpoint means "this key is live", not "this key can generate". If
-         *     you need to know whether a key can drive the API, call a real endpoint with it.
-         *
-         *     Every failure is a **`401`**, whether the key is unknown, revoked, or on a plan without
-         *     API access. This endpoint does not answer `403`.
-         *
-         *     The response carries the workspace name, so a caller holding several keys can tell which
-         *     one it has. Integration platforms use it to label a connection.
-         *
-         *     > **Do not use `GET /ready` to test a key.** It is a service health check and is exempt
-         *     > from authentication, so it answers `200` regardless of the key you send — including one
-         *     > that has been revoked.
-         *
-         *     Takes no request body. It is a `POST` for historical reasons; live integrations depend on
-         *     the current shape, so it will not be changed.
-         */
-        post: operations["verifyApiKey"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/signing-secret": {
         parameters: {
             query?: never;
@@ -448,6 +448,27 @@ export interface paths {
          *     on text or button elements in a generation request.
          */
         get: operations["listFonts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/credits": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get remaining credits
+         * @description Remaining generation and AI credits for the caller's workspace, for the current billing
+         *     period.
+         */
+        get: operations["getCredits"];
         put?: never;
         post?: never;
         delete?: never;
@@ -818,7 +839,7 @@ export interface components {
          *
          *     The value changes when a new version is released. Match the `vYYYY-MM-DD` shape rather than
          *     pinning today's literal, or your client breaks on the next release.
-         * @example v2026-08-21
+         * @example v2026-09-02
          */
         ApiVersion: string;
         /**
@@ -1591,6 +1612,50 @@ export interface components {
              * @enum {string}
              */
             type: "google" | "custom";
+        };
+        CreditBlock: {
+            /**
+             * @description Credits left this billing period. `null` means unlimited.
+             * @example 120
+             */
+            available: number | null;
+            /**
+             * @description The plan's credit limit for this credit type. `null` means unlimited.
+             * @example 500
+             */
+            limit: number | null;
+            /**
+             * @description Credits used this billing period.
+             * @example 380
+             */
+            consumed: number;
+            /**
+             * @description Extra/top-up credits beyond the plan limit.
+             * @example 0
+             */
+            extra: number;
+        };
+        /**
+         * @example {
+         *       "generation_credits": {
+         *         "available": 120,
+         *         "limit": 500,
+         *         "consumed": 380,
+         *         "extra": 0
+         *       },
+         *       "ai_credits": {
+         *         "available": 42,
+         *         "limit": 100,
+         *         "consumed": 58,
+         *         "extra": 0
+         *       }
+         *     }
+         */
+        CreditsBalance: {
+            /** @description Image/video/PDF/HTML5 render credits. */
+            generation_credits: components["schemas"]["CreditBlock"];
+            /** @description AI feature credits — `text_to_image`, background removal, etc. */
+            ai_credits: components["schemas"]["CreditBlock"];
         };
         RootElement: {
             background_color?: components["schemas"]["backgroundColor"];
@@ -2525,6 +2590,39 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    verifyApiKey: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The key is valid and the plan includes API access. */
+            200: {
+                headers: {
+                    "X-RateLimit-Limit": components["headers"]["XRateLimitLimit"];
+                    "X-RateLimit-Remaining": components["headers"]["XRateLimitRemaining"];
+                    "X-RateLimit-Reset": components["headers"]["XRateLimitReset"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /**
+                         * @description Name of the workspace the key belongs to.
+                         * @example Acme Inc.
+                         */
+                        company?: string;
+                        version?: components["schemas"]["ApiVersion"];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
     listDesigns: {
         parameters: {
             query?: {
@@ -3145,39 +3243,6 @@ export interface operations {
             500: components["responses"]["InternalServerError"];
         };
     };
-    verifyApiKey: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The key is valid and the plan includes API access. */
-            200: {
-                headers: {
-                    "X-RateLimit-Limit": components["headers"]["XRateLimitLimit"];
-                    "X-RateLimit-Remaining": components["headers"]["XRateLimitRemaining"];
-                    "X-RateLimit-Reset": components["headers"]["XRateLimitReset"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        /**
-                         * @description Name of the workspace the key belongs to.
-                         * @example Acme Inc.
-                         */
-                        company?: string;
-                        version?: components["schemas"]["ApiVersion"];
-                    };
-                };
-            };
-            401: components["responses"]["Unauthorized"];
-            429: components["responses"]["TooManyRequests"];
-            500: components["responses"]["InternalServerError"];
-        };
-    };
     getSigningSecret: {
         parameters: {
             query?: never;
@@ -3290,6 +3355,32 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Font"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getCredits: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The workspace's remaining credits. */
+            200: {
+                headers: {
+                    "X-RateLimit-Limit": components["headers"]["XRateLimitLimit"];
+                    "X-RateLimit-Remaining": components["headers"]["XRateLimitRemaining"];
+                    "X-RateLimit-Reset": components["headers"]["XRateLimitReset"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreditsBalance"];
                 };
             };
             401: components["responses"]["Unauthorized"];

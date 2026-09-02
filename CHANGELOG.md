@@ -2,6 +2,23 @@
 
 All notable changes to `@abyssale/sdk` are documented here.
 
+## [1.4.0] — 2026-09-02
+
+Types regenerated against API version `v2026-09-02`. Minor, not patch: one new method. Nothing
+existing changed shape, so there is no upgrade step beyond installing it.
+
+### Added
+
+- **`getCredits()`** — the new `GET /credits`, returning the workspace's remaining credits for the
+  current billing period as `generation_credits` and `ai_credits`, each `{available, limit,
+  consumed, extra}`. The call costs no credits.
+
+  Two things to know before you branch on the numbers: **`available` and `limit` are `null` on an
+  unlimited plan**, so a numeric comparison silently coerces `null` to `0` and reads as "out of
+  credits"; and `available` counts the **recurring** allowance only, so what a request can still
+  spend is `available + extra`.
+- `CreditsBalance` and `CreditBlock` are re-exported as public types.
+
 ## [1.3.0] — 2026-08-21
 
 Types regenerated against API version `v2026-08-21`. Minor, not patch: three new methods and a new

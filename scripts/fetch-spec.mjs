@@ -17,7 +17,7 @@ import yaml from 'js-yaml'
 
 // `ABYSSALE_SPEC_URL` may be an http(s) URL or a local path — the latter is how you regenerate
 // against an unpublished spec (e.g. a branch of abyssale-edge-api) before it goes live.
-const SPEC_URL = process.env.ABYSSALE_SPEC_URL ?? 'https://api-reference.abyssale.com/api.yaml'
+const SPEC_URL = process.env.ABYSSALE_SPEC_URL ?? 'https://developers.abyssale.com/api.yaml'
 const OUT = process.argv[2] ?? 'spec.stripped.json'
 
 /**

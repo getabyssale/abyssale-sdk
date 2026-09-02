@@ -2,14 +2,14 @@
 
 ## What this is
 Official Node.js / TypeScript SDK for the Abyssale API.
-Types are auto-generated from the public OpenAPI spec at `https://api-reference.abyssale.com/api.yaml`.
+Types are auto-generated from the public OpenAPI spec at `https://developers.abyssale.com/api.yaml`.
 
 ## Architecture
 
 ```
 src/generated.ts       ← auto-generated types (openapi-typescript) — never edit manually
-src/middleware.ts      ← retry (idempotent 5xx + Retry-After 429 only) + timeout middleware
-src/index.ts           ← singleton export: 18 named methods + 2 polling helpers + public type re-exports
+src/middleware.ts      ← retry (5xx, a 429 with Retry-After, one probe for a bare 429) + timeout middleware
+src/index.ts           ← singleton export: 22 named methods + 2 polling helpers + public type re-exports
 dist/                  ← compiled output — built by tsup, gitignored, produced at publish time
 scripts/fetch-spec.mjs ← fetches the spec and strips the Alpha design-import surface
 ```
@@ -20,6 +20,11 @@ The **canonical SDK reference is the docs site**: `https://developers.abyssale.c
 (source: `abyssale-developers-doc/docs/sdks/nodejs.md`). `README.md` is deliberately a short
 pointer — do not re-expand the method list, config table or retry rules into it, or the two copies
 will drift. Add new facts to the docs page; keep `llms.txt` in sync since it is machine-facing.
+
+The rule has been broken once already: webhook verification arrived in the README as a 46-line
+section restating rules that already lived on `/webhooks/signature-verification`, and its retry
+sentence had drifted out of step with `src/middleware.ts` by the time it was removed. Webhooks get
+**one line and a link** in the README, never the rules.
 
 ## Key decisions
 
@@ -40,7 +45,7 @@ npm test            # vitest
 
 ## Adding a new API endpoint
 
-1. Update the OpenAPI spec at `https://api-reference.abyssale.com/api.yaml`
+1. Update the OpenAPI spec at `https://developers.abyssale.com/api.yaml`
 2. Run `npm run generate` — pulls the latest spec and regenerates `src/generated.ts`
 3. Add a method to the `abyssale` object in `src/index.ts` following the existing pattern
 4. Add a JSDoc `@example` to the method
