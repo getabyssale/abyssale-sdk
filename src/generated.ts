@@ -251,7 +251,7 @@ export interface paths {
          *
          *     **`static` designs only.** An `animated`, `printer` or `printer_multipage` design answers
          *     `400` with `id: template_not_static` — use
-         *     [asynchronous generation](/api-reference/generateMultiFormatMedia)
+         *     [asynchronous generation](#tag/Asset-Generation/operation/generateMultiFormatMedia)
          *     instead. This is a property of the endpoint, not of your plan: a video or a print PDF
          *     cannot be produced inside a synchronous request, so there is no combination of parameters
          *     that makes this work.
@@ -839,7 +839,7 @@ export interface components {
          *
          *     The value changes when a new version is released. Match the `vYYYY-MM-DD` shape rather than
          *     pinning today's literal, or your client breaks on the next release.
-         * @example v2026-09-02
+         * @example v2026-09-24
          */
         ApiVersion: string;
         /**
@@ -1741,6 +1741,8 @@ export interface components {
             min_font_size?: number;
             /** @description Automatically adjusts the label size to fit the button. When true, `min_font_size` must also be defined. */
             auto_resize?: boolean;
+            icon_url?: components["schemas"]["iconUrl"];
+            icon_color?: components["schemas"]["iconColor"];
         };
         ImageElement: {
             image_url?: components["schemas"]["imageUrl"];
@@ -2238,7 +2240,7 @@ export interface components {
          * Format: uuid
          * @description **Force a specific font by ID**. *Example: 6156907e-33c5-11ea-9877-92672c1b8195*
          *
-         *     The fonts list is available by calling the [GET /fonts](/api-reference/#fonts) API route.
+         *     The fonts list is available by calling the [GET /fonts](#tag/Fonts) API route.
          */
         fontId: string;
         /**
@@ -2306,6 +2308,33 @@ export interface components {
          *     __If the image_url is given, this parameter will not be used.__
          */
         imageEncoded: string;
+        /**
+         * Format: uri
+         * @description **HTTP(s) URL of the button's icon** — the small image displayed beside the label.
+         *     *Example: https://www.abyssale.com/imge/star.svg*
+         *
+         *     __It must be publicly accessible__, and the same size limits as `image_url` apply.
+         *
+         *     Supported files: jpeg, jpg, png, webp, svg, gif, tiff, tif, avif
+         *
+         *     Only a `button` layer takes it. It replaces the icon the design carries, or gives one to a
+         *     button designed without — a button that had none renders it on the left, at the label's
+         *     font size, with no gap, since those are the icon defaults.
+         *
+         *     The icon's geometry (its size, its gap to the label and the side it sits on) belongs to
+         *     the design and cannot be overridden per generation.
+         */
+        iconUrl: string;
+        /**
+         * @description **Color applied to the button's icon.**
+         *
+         *     - `Monochrome`: 6 or 8 hexadecimal digits starting with a **#**. _i.e. #EAEAEA or #FF00FF55_
+         *     - `Cmyka` (print only): `cmyka(c,m,y,k)` or `cmyka(c,m,y,k,alpha)` where each value is 0–100.
+         *
+         *     __Only an SVG icon can be recoloured__ — on any other file type the icon is drawn as-is
+         *     and this parameter is ignored. There is no gradient form: an icon takes one flat colour.
+         */
+        iconColor: string;
         /** @description **Opacity of the image** *Example: 60* */
         opacity: number;
         /**
@@ -3204,7 +3233,7 @@ export interface operations {
                         color_profile?: string;
                         display_crop_marks?: boolean;
                     };
-                    /** @description **`printer_multipage` designs only**, where it replaces `elements`: a multipage design is one document with no formats, so content is addressed per page. Ignored on every other design type. The dedicated [multipage PDF operation](/api-reference/generateMultiPagePdf) takes the same field and is the clearer choice for print output; this one exists so a `printer_multipage` design can also be driven through the generic async endpoint. */
+                    /** @description **`printer_multipage` designs only**, where it replaces `elements`: a multipage design is one document with no formats, so content is addressed per page. Ignored on every other design type. The dedicated [multipage PDF operation](#tag/Asset-Generation/operation/generateMultiPagePdf) takes the same field and is the clearer choice for print output; this one exists so a `printer_multipage` design can also be driven through the generic async endpoint. */
                     pages?: components["schemas"]["Pages"];
                     /**
                      * Format: uuid

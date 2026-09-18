@@ -2,6 +2,28 @@
 
 All notable changes to `@abyssale/sdk` are documented here.
 
+## [1.5.0] — 2026-09-24
+
+Types regenerated against API version `v2026-09-24`. Minor, not patch: the element types gained
+fields. No method changed and no signature moved, so there is no upgrade step beyond installing it.
+
+### Added
+
+- **A `button` element accepts `icon_url` and `icon_color`.** `icon_url` is a public HTTP(s) URL of
+  an image to place beside the label; `icon_color` recolours it, and only bites on an **SVG** —
+  recolouring rewrites the paint inside the file, and a raster has none to rewrite. Sending
+  `icon_url` for a button designed without an icon adds one, rendered on the left at the label's
+  font size.
+
+  The icon's geometry — its size, its gap to the label, the side it sits on — belongs to the design
+  and is deliberately not overridable per generation, the same way a text layer's font family is.
+
+  ```ts
+  await abyssale.generateImage(templateId, {
+    elements: { button_0: { icon_url: 'https://example.com/star.svg', icon_color: '#FF0000' } },
+  })
+  ```
+
 ## [1.4.0] — 2026-09-02
 
 Types regenerated against API version `v2026-09-02`. Minor, not patch: one new method. Nothing
