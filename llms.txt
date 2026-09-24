@@ -14,8 +14,8 @@ images, colors, and other properties dynamically.
 It provides a zero-config singleton with 24 typed methods covering the full API surface,
 plus built-in polling helpers with exponential backoff. Configuration is done via the
 `ABYSSALE_API_KEY` environment variable. The SDK ships as dual ESM/CJS with full
-TypeScript types generated from the OpenAPI spec. Version 1.4.0 tracks API version
-`v2026-09-02` and covers every operation that spec publishes, except the Alpha design-import
+TypeScript types generated from the OpenAPI spec. Version 1.5.0 tracks API version
+`v2026-09-24` and covers every operation that spec publishes, except the Alpha design-import
 endpoints, which are deliberately excluded while their contract can still change.
 
 ## Installation

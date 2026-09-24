@@ -59,11 +59,13 @@ API version it was generated against.
 
 | SDK version | API version   |
 | ----------- | ------------- |
+| 1.5.0       | `v2026-09-24` |
+| 1.4.1       | `v2026-09-02` |
 | 1.4.0       | `v2026-09-02` |
 | 1.3.0       | `v2026-08-21` |
 | 1.2.0       | `v2026-08-20` |
 
-**1.4.0 is at full parity with `v2026-09-02`**: every operation the spec publishes has a method on
+**1.5.0 is at full parity with `v2026-09-24`**: every operation the spec publishes has a method on
 the client. The one deliberate exception is the design-import surface (`/designs/import/json`,
 `/designs/import/json/{importId}`, `/designs/{designId}/as-import`), which is in Alpha and whose
 contract may change without notice — [`scripts/fetch-spec.mjs`](./scripts/fetch-spec.mjs) strips it
@@ -82,6 +84,40 @@ batch ZIP export.
 ```bash
 ABYSSALE_API_KEY=your-key npx tsx examples/generate-image.ts
 ```
+
+## Releasing
+
+`src/generated.ts` is generated, not written — it drifts silently whenever the spec moves. **Never
+tag or publish before regenerating it.** Run, in this order:
+
+```bash
+npm run generate          # re-fetch the spec and regenerate src/generated.ts
+git status --short         # MUST be clean — a diff here means the spec moved
+```
+
+If `git status` shows `src/generated.ts` as modified, the release you were about to cut is stale:
+commit the regenerated types first, then continue.
+
+```bash
+npm run typecheck && npm run build && npm test
+npm --no-git-tag-version version <x.y.z>   # bump package.json
+git commit -am "release: <x.y.z>"
+git tag -a v<x.y.z> -m "v<x.y.z>"
+git push origin main --follow-tags
+npm publish
+```
+
+Two things that bite:
+
+- **The tag must point at the commit whose `package.json` carries that version.** Bump first, tag
+  second — a tag placed before the bump publishes the wrong version, or fails outright because npm
+  refuses to overwrite an existing one.
+- **A published npm version is immutable.** If a bad release reaches the registry, ship a patch and
+  `npm deprecate '@abyssale/sdk@<bad>' '<reason>'` — do not try to move the tag to fix it.
+
+`prepublishOnly` re-runs `generate`, `typecheck`, `build` and `test`, but it does *not* fail on a
+generated diff — it will happily publish freshly regenerated types under a version whose committed
+tree disagrees. The `git status` check above is the actual safeguard.
 
 ## Contributing
 

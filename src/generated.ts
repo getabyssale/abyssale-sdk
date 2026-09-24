@@ -839,7 +839,7 @@ export interface components {
          *
          *     The value changes when a new version is released. Match the `vYYYY-MM-DD` shape rather than
          *     pinning today's literal, or your client breaks on the next release.
-         * @example v2026-09-02
+         * @example v2026-09-24
          */
         ApiVersion: string;
         /**
@@ -864,6 +864,15 @@ export interface components {
              * @example layers[2].properties.color
              */
             path?: string;
+            /**
+             * @description Why a `preview_generation_failed` warning was raised; absent on every other code.
+             *     `render_failed`: the format could not be rendered, so the design itself may need
+             *     fixing — `message` says why when it can. `preview_not_stored`: the format rendered
+             *     but its preview could not be stored.
+             * @example render_failed
+             * @enum {string}
+             */
+            reason?: "render_failed" | "preview_not_stored";
             /**
              * @description Name of the layer the entry belongs to, when it was raised while transforming a
              *     layer. An index in `path` identifies a position in the emitted array, which is not
@@ -1664,7 +1673,7 @@ export interface components {
         SharedElementProperties: {
             /** @description `true`, `false`. If true it hides the current element */
             hidden?: boolean;
-            /** @description 6-8 digits hexadecimal color */
+            /** @description 6-8 digits hexadecimal color. On a `button` this is the shadow of the **button box**; its label has its own, `text_shadow_color`. */
             shadow_color?: string;
             /** @description Blur in pixels */
             shadow_blur?: number;
@@ -1674,7 +1683,7 @@ export interface components {
             shadow_offset_y?: number;
         };
         Element: components["schemas"]["SharedElementProperties"] & (components["schemas"]["TextElement"] | components["schemas"]["ImageElement"] | components["schemas"]["ButtonElement"] | components["schemas"]["LogoElement"] | components["schemas"]["ShapeElement"] | components["schemas"]["RatingElement"] | components["schemas"]["IllustrationElement"] | components["schemas"]["QRCodeElement"] | components["schemas"]["VideoElement"] | components["schemas"]["AudioElement"]);
-        /** @description Same as `Element`, but its image element also exposes AI generation properties (`text_to_image`, inpainting, background removal model) that are only available for asynchronous generation. */
+        /** @description Same as `Element`, but its image element also exposes AI generation properties (`text_to_image`, inpainting, background removal model, AI expand/outpainting) that are only available for asynchronous generation. */
         AsyncElement: components["schemas"]["SharedElementProperties"] & (components["schemas"]["TextElement"] | components["schemas"]["AsyncImageElement"] | components["schemas"]["ButtonElement"] | components["schemas"]["LogoElement"] | components["schemas"]["ShapeElement"] | components["schemas"]["RatingElement"] | components["schemas"]["IllustrationElement"] | components["schemas"]["QRCodeElement"] | components["schemas"]["VideoElement"] | components["schemas"]["AudioElement"]);
         TextElement: {
             payload?: components["schemas"]["payload"];
@@ -1741,6 +1750,17 @@ export interface components {
             min_font_size?: number;
             /** @description Automatically adjusts the label size to fit the button. When true, `min_font_size` must also be defined. */
             auto_resize?: boolean;
+            /** @description **Shadow of the button's label**, in 6-8 hexadecimal digits. A button carries two shadows: `shadow_color` and its `shadow_*` siblings drop the **box**, these drop the **text inside it**. Both can be set at once. */
+            text_shadow_color?: string;
+            /** @description Blur of the label's shadow, in pixels */
+            text_shadow_blur?: number;
+            /** @description Horizontal offset of the label's shadow, in pixels (can be negative) */
+            text_shadow_offset_x?: number;
+            /** @description Vertical offset of the label's shadow, in pixels (can be negative) */
+            text_shadow_offset_y?: number;
+            icon_url?: components["schemas"]["iconUrl"];
+            icon_encoded?: components["schemas"]["iconEncoded"];
+            icon_color?: components["schemas"]["iconColor"];
         };
         ImageElement: {
             image_url?: components["schemas"]["imageUrl"];
@@ -1777,6 +1797,32 @@ export interface components {
             };
             /** @description Activates AI-powered auto-focus to detect and focus on specified objects or people within the image. */
             auto_focus?: boolean;
+            /**
+             * @description `auto_focus_properties.model` at the top level — the form these five properties were
+             *     moved to, and the one the renderer is handed. Both are accepted; the nested one wins
+             *     when you send both, being the more specific.
+             *
+             *     **`face` is deprecated** — see `auto_focus_properties.model`.
+             * @enum {string}
+             */
+            auto_focus_model?: "generic" | "people" | "face";
+            /** @description `auto_focus_properties.focus_objects` at the top level. Generic model only. */
+            focus_objects?: string[];
+            /**
+             * @description `auto_focus_properties.focus_framing` at the top level. Specific to the `people` model.
+             * @enum {string}
+             */
+            focus_framing?: "face" | "head" | "shoulders" | "full_body";
+            /**
+             * @description `auto_focus_properties.focus_zoom` at the top level. Specific to the `people` model.
+             * @enum {string}
+             */
+            focus_zoom?: "off" | "low" | "medium" | "max";
+            /**
+             * @description `auto_focus_properties.focus_target` at the top level. Specific to the `people` model.
+             * @enum {string}
+             */
+            focus_target?: "largest" | "left" | "middle" | "right" | "all";
             /** @description Additional settings for auto-focus. */
             auto_focus_properties?: {
                 /**
@@ -1809,7 +1855,7 @@ export interface components {
                 focus_target?: "largest" | "left" | "middle" | "right" | "all";
             };
         };
-        /** @description Image element properties available for asynchronous generation, including AI image generation, inpainting, and background removal model selection. */
+        /** @description Image element properties available for asynchronous generation, including AI image generation, inpainting, background removal model selection, and AI expand/outpainting. */
         AsyncImageElement: {
             image_url?: components["schemas"]["imageUrl"];
             image_encoded?: components["schemas"]["imageEncoded"];
@@ -1837,6 +1883,32 @@ export interface components {
             };
             /** @description Activates AI-powered auto-focus to detect and focus on specified objects or people within the image. */
             auto_focus?: boolean;
+            /**
+             * @description `auto_focus_properties.model` at the top level — the form these five properties were
+             *     moved to, and the one the renderer is handed. Both are accepted; the nested one wins
+             *     when you send both, being the more specific.
+             *
+             *     **`face` is deprecated** — see `auto_focus_properties.model`.
+             * @enum {string}
+             */
+            auto_focus_model?: "generic" | "people" | "face";
+            /** @description `auto_focus_properties.focus_objects` at the top level. Generic model only. */
+            focus_objects?: string[];
+            /**
+             * @description `auto_focus_properties.focus_framing` at the top level. Specific to the `people` model.
+             * @enum {string}
+             */
+            focus_framing?: "face" | "head" | "shoulders" | "full_body";
+            /**
+             * @description `auto_focus_properties.focus_zoom` at the top level. Specific to the `people` model.
+             * @enum {string}
+             */
+            focus_zoom?: "off" | "low" | "medium" | "max";
+            /**
+             * @description `auto_focus_properties.focus_target` at the top level. Specific to the `people` model.
+             * @enum {string}
+             */
+            focus_target?: "largest" | "left" | "middle" | "right" | "all";
             /** @description Additional settings for auto-focus. */
             auto_focus_properties?: {
                 /**
@@ -1878,6 +1950,21 @@ export interface components {
              */
             text_to_image?: boolean | string;
             text_to_image_properties?: components["schemas"]["TextToImageProperties"];
+            /**
+             * @description Activates AI-powered image expansion (outpainting): extends the image beyond its
+             *     original borders to fill the target area instead of cropping or letterboxing it.
+             *     `true` uses `expand_properties`.
+             */
+            expand?: boolean;
+            expand_properties?: components["schemas"]["ExpandProperties"];
+        };
+        /** @description Settings for AI-powered image expansion (outpainting). */
+        ExpandProperties: {
+            /**
+             * @description Model used for expansion. Default is `flux-2-pro-outpaint`.
+             * @enum {string}
+             */
+            model?: "image-outpaint" | "flux-2-pro-outpaint" | "bria-expand";
         };
         /** @description Settings for AI image generation or inpainting. */
         TextToImageProperties: {
@@ -1998,7 +2085,7 @@ export interface components {
         Elements: {
             [key: string]: components["schemas"]["RootElement"] | components["schemas"]["Element"] | components["schemas"]["VideoElement"] | components["schemas"]["AudioElement"] | components["schemas"]["ElementVars"];
         };
-        /** @description Same as `Elements`, but its image element also exposes AI generation properties (`text_to_image`, inpainting, background removal model) that are only available for asynchronous generation. */
+        /** @description Same as `Elements`, but its image element also exposes AI generation properties (`text_to_image`, inpainting, background removal model, AI expand/outpainting) that are only available for asynchronous generation. */
         AsyncElements: {
             [key: string]: components["schemas"]["RootElement"] | components["schemas"]["AsyncElement"] | components["schemas"]["VideoElement"] | components["schemas"]["AudioElement"] | components["schemas"]["ElementVars"];
         };
@@ -2197,8 +2284,12 @@ export interface components {
          *
          *     3 filling modes are available:
          *     - `Monochrome`: 6 or 8 hexadecimal colors starting with a **#**. _i.e. #EAEAEA or #FF00FF55_
-         *     - `Linear Gradient`: `linear-gradient(x1% y1% x2% y2%,offset1% #color1 opacity1,offset2% #color2 opacity2)` _i.e. linear-gradient(0% 0% 100% 0%,0% #1a47ff 1,100% #b65151 1)_
+         *     - `Linear Gradient`: `linear-gradient(x1% y1% x2% y2%,offset1% #color1 opacity1,offset2% #color2 opacity2[,...])` with 2 to 8 color stops, each at its own offset. _i.e. linear-gradient(0% 0% 100% 0%,0% #1a47ff 1,100% #b65151 1)_
          *     - `Cmyka` (print only): `cmyka(c,m,y,k)` or `cmyka(c,m,y,k,alpha)` where each value is 0–100. _i.e. cmyka(0,100,100,0,100)_
+         *
+         *     On a `printer` / `printer_multipage` design a gradient is accepted only on the
+         *     `background_color` of a shape or button, with `cmyk(C,M,Y,K)` or `#RRGGBB` stops; on the
+         *     format background (`root`) or any other element it is refused with `400 invalid_payload`.
          * @example #FF0000
          */
         backgroundColor: string;
@@ -2219,8 +2310,11 @@ export interface components {
          *
          *     3 filling modes are available:
          *     - `Monochrome`: 6 or 8 hexadecimal colors starting with a **#**. _i.e. #EAEAEA or #FF00FF55_
-         *     - `Linear Gradient`: `linear-gradient(x1% y1% x2% y2%,offset1% #color1 opacity1,offset2% #color2 opacity2)`
+         *     - `Linear Gradient`: `linear-gradient(x1% y1% x2% y2%,offset1% #color1 opacity1,offset2% #color2 opacity2[,...])` with 2 to 8 color stops, each at its own offset.
          *     - `Cmyka` (print only): `cmyka(c,m,y,k)` or `cmyka(c,m,y,k,alpha)` where each value is 0–100.
+         *
+         *     A gradient is not accepted on a `printer` / `printer_multipage` design: print text is
+         *     solid, and the request is refused with `400 invalid_payload`.
          */
         color: string;
         /**
@@ -2306,6 +2400,47 @@ export interface components {
          *     __If the image_url is given, this parameter will not be used.__
          */
         imageEncoded: string;
+        /**
+         * Format: uri
+         * @description **HTTP(s) URL of the button's icon** — the small image displayed beside the label.
+         *     *Example: https://www.abyssale.com/imge/star.svg*
+         *
+         *     __It must be publicly accessible__, and the same size limits as `image_url` apply.
+         *
+         *     Supported files: jpeg, jpg, png, webp, svg, gif, tiff, tif, avif
+         *
+         *     Only a `button` layer takes it. It replaces the icon the design carries, or gives one to a
+         *     button designed without — a button that had none renders it on the left, at the label's
+         *     font size, with no gap, since those are the icon defaults.
+         *
+         *     The icon's geometry (its size, its gap to the label and the side it sits on) belongs to
+         *     the design and cannot be overridden per generation.
+         */
+        iconUrl: string;
+        /**
+         * @description **Base64 encoded icon as value** — the `icon_url` alternative, exactly as `image_encoded`
+         *     is to `image_url`. *Example: /9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAIBAQE...*
+         *
+         *     Either a bare base64 body or a `data:image/<type>;base64,` data URI; the prefix is stripped
+         *     for you. The same mimetypes and the same size cap as `image_encoded` apply, and the value is
+         *     never stored on the generation request.
+         *
+         *     __If `icon_url` is given, this parameter will not be used.__
+         *
+         *     Only a `button` layer takes it, and the icon's geometry still belongs to the design — see
+         *     `icon_url`.
+         */
+        iconEncoded: string;
+        /**
+         * @description **Color applied to the button's icon.**
+         *
+         *     - `Monochrome`: 6 or 8 hexadecimal digits starting with a **#**. _i.e. #EAEAEA or #FF00FF55_
+         *     - `Cmyka` (print only): `cmyka(c,m,y,k)` or `cmyka(c,m,y,k,alpha)` where each value is 0–100.
+         *
+         *     __Only an SVG icon can be recoloured__ — on any other file type the icon is drawn as-is
+         *     and this parameter is ignored. There is no gradient form: an icon takes one flat colour.
+         */
+        iconColor: string;
         /** @description **Opacity of the image** *Example: 60* */
         opacity: number;
         /**
