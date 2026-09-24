@@ -865,6 +865,15 @@ export interface components {
              */
             path?: string;
             /**
+             * @description Why a `preview_generation_failed` warning was raised; absent on every other code.
+             *     `render_failed`: the format could not be rendered, so the design itself may need
+             *     fixing — `message` says why when it can. `preview_not_stored`: the format rendered
+             *     but its preview could not be stored.
+             * @example render_failed
+             * @enum {string}
+             */
+            reason?: "render_failed" | "preview_not_stored";
+            /**
              * @description Name of the layer the entry belongs to, when it was raised while transforming a
              *     layer. An index in `path` identifies a position in the emitted array, which is not
              *     the name the caller sees in the editor — group on this rather than parsing `path`.
@@ -2277,6 +2286,10 @@ export interface components {
          *     - `Monochrome`: 6 or 8 hexadecimal colors starting with a **#**. _i.e. #EAEAEA or #FF00FF55_
          *     - `Linear Gradient`: `linear-gradient(x1% y1% x2% y2%,offset1% #color1 opacity1,offset2% #color2 opacity2[,...])` with 2 to 8 color stops, each at its own offset. _i.e. linear-gradient(0% 0% 100% 0%,0% #1a47ff 1,100% #b65151 1)_
          *     - `Cmyka` (print only): `cmyka(c,m,y,k)` or `cmyka(c,m,y,k,alpha)` where each value is 0–100. _i.e. cmyka(0,100,100,0,100)_
+         *
+         *     On a `printer` / `printer_multipage` design a gradient is accepted only on the
+         *     `background_color` of a shape or button, with `cmyk(C,M,Y,K)` or `#RRGGBB` stops; on the
+         *     format background (`root`) or any other element it is refused with `400 invalid_payload`.
          * @example #FF0000
          */
         backgroundColor: string;
@@ -2299,6 +2312,9 @@ export interface components {
          *     - `Monochrome`: 6 or 8 hexadecimal colors starting with a **#**. _i.e. #EAEAEA or #FF00FF55_
          *     - `Linear Gradient`: `linear-gradient(x1% y1% x2% y2%,offset1% #color1 opacity1,offset2% #color2 opacity2[,...])` with 2 to 8 color stops, each at its own offset.
          *     - `Cmyka` (print only): `cmyka(c,m,y,k)` or `cmyka(c,m,y,k,alpha)` where each value is 0–100.
+         *
+         *     A gradient is not accepted on a `printer` / `printer_multipage` design: print text is
+         *     solid, and the request is refused with `400 invalid_payload`.
          */
         color: string;
         /**
