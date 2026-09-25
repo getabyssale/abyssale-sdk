@@ -839,7 +839,7 @@ export interface components {
          *
          *     The value changes when a new version is released. Match the `vYYYY-MM-DD` shape rather than
          *     pinning today's literal, or your client breaks on the next release.
-         * @example v2026-09-24
+         * @example v2026-09-25
          */
         ApiVersion: string;
         /**
@@ -1673,7 +1673,7 @@ export interface components {
         SharedElementProperties: {
             /** @description `true`, `false`. If true it hides the current element */
             hidden?: boolean;
-            /** @description 6-8 digits hexadecimal color. On a `button` this is the shadow of the **button box**; its label has its own, `text_shadow_color`. */
+            /** @description Hex (`#RRGGBB`, `#RRGGBBAA`, `#RGB` or `#RGBA`) or `cmyk(...)` / `cmyka(...)`; no gradient. On a `button` this is the shadow of the **button box**; its label has its own, `text_shadow_color`. */
             shadow_color?: string;
             /** @description Blur in pixels */
             shadow_blur?: number;
@@ -1716,7 +1716,7 @@ export interface components {
             side_border?: "left" | "right" | "top" | "bottom" | "none";
             /** @description Thickness of the side border in pixels. */
             side_border_thickness?: number;
-            /** @description Color of the side border. 6-8 digits hexadecimal or cmyka (for print). */
+            /** @description Color of the side border. Hex (`#RRGGBB`, `#RRGGBBAA`, `#RGB` or `#RGBA`) or, for print, `cmyk(...)` / `cmyka(...)`; no gradient. */
             side_border_color?: string;
             /** @description Whether the border corners are rounded (true) or square (false). Default is false. */
             side_border_rounded?: boolean;
@@ -1750,7 +1750,7 @@ export interface components {
             min_font_size?: number;
             /** @description Automatically adjusts the label size to fit the button. When true, `min_font_size` must also be defined. */
             auto_resize?: boolean;
-            /** @description **Shadow of the button's label**, in 6-8 hexadecimal digits. A button carries two shadows: `shadow_color` and its `shadow_*` siblings drop the **box**, these drop the **text inside it**. Both can be set at once. */
+            /** @description **Shadow of the button's label**: hex (`#RRGGBB`, `#RRGGBBAA`, `#RGB` or `#RGBA`) or `cmyk(...)` / `cmyka(...)`; no gradient. A button carries two shadows: `shadow_color` and its `shadow_*` siblings drop the **box**, these drop the **text inside it**. Both can be set at once. */
             text_shadow_color?: string;
             /** @description Blur of the label's shadow, in pixels */
             text_shadow_blur?: number;
@@ -2283,13 +2283,19 @@ export interface components {
          * @description **The background color displayed behind the element.**
          *
          *     3 filling modes are available:
-         *     - `Monochrome`: 6 or 8 hexadecimal colors starting with a **#**. _i.e. #EAEAEA or #FF00FF55_
-         *     - `Linear Gradient`: `linear-gradient(x1% y1% x2% y2%,offset1% #color1 opacity1,offset2% #color2 opacity2[,...])` with 2 to 8 color stops, each at its own offset. _i.e. linear-gradient(0% 0% 100% 0%,0% #1a47ff 1,100% #b65151 1)_
-         *     - `Cmyka` (print only): `cmyka(c,m,y,k)` or `cmyka(c,m,y,k,alpha)` where each value is 0–100. _i.e. cmyka(0,100,100,0,100)_
+         *     - `Hex`: `#RRGGBB`, `#RRGGBBAA`, `#RGB` or `#RGBA` (the 8- and 4-digit forms carry alpha). _i.e. #EAEAEA or #FF00FF55_
+         *     - `Linear Gradient`: `linear-gradient(x1% y1% x2% y2%,offset1% color1 opacity1,offset2% color2 opacity2[,...])` with 2 to 8 color stops, each at its own offset. _i.e. linear-gradient(0% 0% 100% 0%,0% #1a47ff 1,100% #b65151 1)_
+         *       - offset: `0%` to `100%`;
+         *       - color: `#RRGGBB` or `#RGB`, or `cmyk(C,M,Y,K)` without spaces, and every stop in the same notation. A stop color carries no alpha (`#RRGGBBAA`, `#RGBA` and `cmyka` are refused): transparency is the stop opacity;
+         *       - opacity: `0` to `1`.
+         *
+         *       No space after a comma.
+         *     - `CMYK` (for print; converted to RGB on other designs): `cmyk(C,M,Y,K)` or `cmyka(C,M,Y,K,A)`, each component an integer 0–100, optionally followed by `%`. _i.e. cmyk(0,100,100,0)_
          *
          *     On a `printer` / `printer_multipage` design a gradient is accepted only on the
-         *     `background_color` of a shape or button, with `cmyk(C,M,Y,K)` or `#RRGGBB` stops; on the
-         *     format background (`root`) or any other element it is refused with `400 invalid_payload`.
+         *     `background_color` of a shape or button, with `cmyk(C,M,Y,K)`, `#RRGGBB` or `#RGB` stops, all
+         *     opaque; on the format background (`root`) or any other element it is refused with
+         *     `400 invalid_payload`.
          * @example #FF0000
          */
         backgroundColor: string;
@@ -2309,9 +2315,14 @@ export interface components {
          * @description **The text color.**
          *
          *     3 filling modes are available:
-         *     - `Monochrome`: 6 or 8 hexadecimal colors starting with a **#**. _i.e. #EAEAEA or #FF00FF55_
-         *     - `Linear Gradient`: `linear-gradient(x1% y1% x2% y2%,offset1% #color1 opacity1,offset2% #color2 opacity2[,...])` with 2 to 8 color stops, each at its own offset.
-         *     - `Cmyka` (print only): `cmyka(c,m,y,k)` or `cmyka(c,m,y,k,alpha)` where each value is 0–100.
+         *     - `Hex`: `#RRGGBB`, `#RRGGBBAA`, `#RGB` or `#RGBA` (the 8- and 4-digit forms carry alpha). _i.e. #EAEAEA or #FF00FF55_
+         *     - `Linear Gradient`: `linear-gradient(x1% y1% x2% y2%,offset1% color1 opacity1,offset2% color2 opacity2[,...])` with 2 to 8 color stops, each at its own offset. _i.e. linear-gradient(0% 0% 100% 0%,0% #1a47ff 1,100% #b65151 1)_
+         *       - offset: `0%` to `100%`;
+         *       - color: `#RRGGBB` or `#RGB`, or `cmyk(C,M,Y,K)` without spaces, and every stop in the same notation. A stop color carries no alpha (`#RRGGBBAA`, `#RGBA` and `cmyka` are refused): transparency is the stop opacity;
+         *       - opacity: `0` to `1`.
+         *
+         *       No space after a comma.
+         *     - `CMYK` (for print; converted to RGB on other designs): `cmyk(C,M,Y,K)` or `cmyka(C,M,Y,K,A)`, each component an integer 0–100, optionally followed by `%`. _i.e. cmyk(0,100,100,0)_
          *
          *     A gradient is not accepted on a `printer` / `printer_multipage` design: print text is
          *     solid, and the request is refused with `400 invalid_payload`.
@@ -2379,7 +2390,7 @@ export interface components {
         /** @description **Width of the shape's stroke** *Example: 10*. The design **import** allows up to 1000 — see `strokeWidth`. */
         shapeStrokeWidth: number;
         /**
-         * @description **Stroke Color. 6-8 digits Hexa color.**. *Example: #FF0000*
+         * @description **Stroke color.** Hex (`#RRGGBB`, `#RRGGBBAA`, `#RGB` or `#RGBA`) or, for print, `cmyk(...)` / `cmyka(...)`; no gradient. *Example: #FF0000*
          *
          *     __If your design does not contain any stroke, this color won't be visible__
          */
@@ -2434,8 +2445,8 @@ export interface components {
         /**
          * @description **Color applied to the button's icon.**
          *
-         *     - `Monochrome`: 6 or 8 hexadecimal digits starting with a **#**. _i.e. #EAEAEA or #FF00FF55_
-         *     - `Cmyka` (print only): `cmyka(c,m,y,k)` or `cmyka(c,m,y,k,alpha)` where each value is 0–100.
+         *     - `Hex`: `#RRGGBB`, `#RRGGBBAA`, `#RGB` or `#RGBA` (the 8- and 4-digit forms carry alpha). _i.e. #EAEAEA or #FF00FF55_
+         *     - `CMYK` (for print; converted to RGB on other designs): `cmyk(C,M,Y,K)` or `cmyka(C,M,Y,K,A)`, each component an integer 0–100, optionally followed by `%`. _i.e. cmyk(0,100,100,0)_
          *
          *     __Only an SVG icon can be recoloured__ — on any other file type the icon is drawn as-is
          *     and this parameter is ignored. There is no gradient form: an icon takes one flat colour.
@@ -2525,7 +2536,7 @@ export interface components {
          */
         patternName: "bubbles" | "cage" | "cross" | "doubleCircle" | "drops" | "parkay" | "pills" | "plus" | "star" | "ticTac" | "ticTacFilled" | "triangle" | "wiggle";
         /**
-         * @description **A 6 or 8 hexadecimal shape color starting with a `#`.** *Example: #EAEAEA or #FF00FF55*
+         * @description **The color of the pattern.** Hex (`#RRGGBB`, `#RRGGBBAA`, `#RGB` or `#RGBA`) or, for print, `cmyk(C,M,Y,K)` / `cmyka(C,M,Y,K,A)` with components 0–100. No gradient. _i.e. #EAEAEA or #FF00FF55_
          *
          *     _If no pattern is applied to the shape, this property will not change anything._
          * @example #EAEAEA
@@ -2536,9 +2547,9 @@ export interface components {
          * @enum {string}
          */
         overlayDirection: "horizontal" | "vertical" | "diagonal";
-        /** @description First color of the overlay. 6-8 Digits Hexa color. */
+        /** @description First color of the overlay. Hex (`#RRGGBB`, `#RRGGBBAA`, `#RGB` or `#RGBA`) or, for print, `cmyk(...)` / `cmyka(...)`; no gradient. */
         overlayColor1: string;
-        /** @description Second color of the overlay. 6-8 Digits Hexa color. */
+        /** @description Second color of the overlay. Hex (`#RRGGBB`, `#RRGGBBAA`, `#RGB` or `#RGBA`) or, for print, `cmyk(...)` / `cmyka(...)`; no gradient. */
         overlayColor2: string;
         /**
          * @description **Score of the rating on a scale of 100.** *Example: 50*
@@ -2549,13 +2560,13 @@ export interface components {
         /**
          * @description **The background color displayed behind all the stars.**
          *
-         *     6 or 8 hexadecimal colors starting with a **#**. _i.e. #EAEAEA or #FF00FF55_
+         *     Hex (`#RRGGBB`, `#RRGGBBAA`, `#RGB` or `#RGBA`) or, for print, `cmyk(C,M,Y,K)` / `cmyka(C,M,Y,K,A)` with components 0–100. No gradient. _i.e. #EAEAEA or #FF00FF55_
          */
         ratingBackgroundColor: string;
         /**
          * @description **The color of the filled stars.**
          *
-         *     6 or 8 hexadecimal colors starting with a **#**. _i.e. #EAEAEA or #FF00FF55_
+         *     Hex (`#RRGGBB`, `#RRGGBBAA`, `#RGB` or `#RGBA`) or, for print, `cmyk(C,M,Y,K)` / `cmyka(C,M,Y,K,A)` with components 0–100. No gradient. _i.e. #EAEAEA or #FF00FF55_
          */
         starColor: string;
         /** @description **Margins in pixels between stars.** *Example: 60* */
@@ -2575,20 +2586,20 @@ export interface components {
             /**
              * @description **Color of the illustration**
              *
-             *     *A 6 or 8 hexadecimal shape color starting with a **#**.** *Example: #EAEAEA or #FF00FF55_*
+             *     Hex (`#RRGGBB`, `#RRGGBBAA`, `#RGB` or `#RGBA`) or, for print, `cmyk(C,M,Y,K)` / `cmyka(C,M,Y,K,A)` with components 0–100. No gradient. _i.e. #EAEAEA or #FF00FF55_
              */
             primary_color?: string;
         };
         /**
          * @description **The background color displayed behind the qrcode.**
          *
-         *     6 or 8 hexadecimal colors starting with a **#**. _i.e. #EAEAEA or #FF00FF55_
+         *     Hex (`#RRGGBB`, `#RRGGBBAA`, `#RGB` or `#RGBA`) or, for print, `cmyk(C,M,Y,K)` / `cmyka(C,M,Y,K,A)` with components 0–100. No gradient. _i.e. #EAEAEA or #FF00FF55_
          */
         qrcodeBackgroundColor: string;
         /**
          * @description **The color of the qrcode (of all squares).**
          *
-         *     6 or 8 hexadecimal colors starting with a **#**. _i.e. #EAEAEA or #FF00FF55_
+         *     Hex (`#RRGGBB`, `#RRGGBBAA`, `#RGB` or `#RGBA`) or, for print, `cmyk(C,M,Y,K)` / `cmyka(C,M,Y,K,A)` with components 0–100. No gradient. _i.e. #EAEAEA or #FF00FF55_
          */
         qrcodeForegroundColor: string;
         /**
