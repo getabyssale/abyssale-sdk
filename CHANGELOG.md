@@ -2,6 +2,27 @@
 
 All notable changes to `@abyssale/sdk` are documented here.
 
+## [1.5.1] — 2026-09-25
+
+Types regenerated against API version `v2026-09-25`. No type changed — a colour is a `string`
+either way — so there is no upgrade step beyond installing it. The regeneration only rewrote the
+doc comments of the colour fields to the one colour grammar `v2026-09-25` publishes.
+
+### Changed
+
+- **Colour fields document what you may send.** Hex is `#RRGGBB`, `#RRGGBBAA`, `#RGB` or `#RGBA`;
+  CMYK is `cmyk(C,M,Y,K)` or `cmyka(C,M,Y,K,A)`, each component an integer 0–100, optionally
+  followed by `%`. A gradient stop is `#RRGGBB`, `#RGB` or `cmyk(C,M,Y,K)` — no alpha, its
+  transparency is the stop opacity (`0` to `1`) — at an offset of `0%` to `100%`.
+
+### Worth knowing — an API change, not an SDK one
+
+`v2026-09-25` **refuses with `400 invalid_payload`** colours it used to draw wrong or fail on: a
+CMYK component or alpha above `100`, a gradient stop offset above `100%`, a stop opacity above `1`
+and a 4-digit hex gradient stop. The SDK passes request bodies through untouched, so this reaches
+you whatever SDK version you run. See the
+[API changelog](https://developers.abyssale.com/rest-api/changelog).
+
 ## [1.5.0] — 2026-09-24
 
 Types regenerated against API version `v2026-09-24`. Minor, not patch: the element types gained
