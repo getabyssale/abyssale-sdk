@@ -2,6 +2,30 @@
 
 All notable changes to `@abyssale/sdk` are documented here.
 
+## [1.6.0] — 2026-10-01
+
+Types regenerated against API version `v2026-10-01`, which also brings `v2026-09-30`. Minor, not
+patch: the image element types gained the upscale fields and new model names. Nothing was removed
+or narrowed, so there is no upgrade step beyond installing it.
+
+### Added
+
+- **Upscale on the image element** (`v2026-09-30`): `upscale` and `upscale_properties` on the
+  asynchronous image element, typed by the new `UpscaleProperties` (`model`: `seedvr-upscale`,
+  `topaz-precision`, `crystal-upscaler` or `bria-increase-resolution`; `upscale_factor`: `1` to
+  `4`). Asynchronous generation only: the API refuses it on synchronous generation.
+- **Three text-to-image and inpainting models** in the image element's `model` union
+  (`v2026-09-30`): `gpt-image-2.5-sunburst`, `gpt-image-2.5-flare` and `seedream-5-pro`.
+- **`design_in_open_product`** among the documented error ids.
+
+### Changed
+
+- **Colour fields document radial gradients** (`v2026-10-01`). Every field that takes a linear
+  gradient also takes `radial-gradient(cx% cy% r%,<stops>)`: a centre and a radius as percentages
+  of the layer's box, then the same 2 to 8 stops. A colour is a `string` either way, so only the
+  doc comments changed. See the
+  [API changelog](https://developers.abyssale.com/rest-api/changelog).
+
 ## [1.5.1] — 2026-09-25
 
 Types regenerated against API version `v2026-09-25`. No type changed — a colour is a `string`

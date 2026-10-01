@@ -766,7 +766,7 @@ export interface components {
              *
              *     **The resource is in the wrong state for this call.** Read it back to find out which:
              *     `template_import_already_processed`, `project_already_exists`, `template_not_active`,
-             *     `previous_secret_still_active`.
+             *     `previous_secret_still_active`, `design_in_open_product`.
              *
              *     **Valid request, unrenderable content.** The engine accepted the call and then
              *     refused the artwork — most often text that cannot fit its layer:
@@ -839,7 +839,7 @@ export interface components {
          *
          *     The value changes when a new version is released. Match the `vYYYY-MM-DD` shape rather than
          *     pinning today's literal, or your client breaks on the next release.
-         * @example v2026-09-25
+         * @example v2026-10-01
          */
         ApiVersion: string;
         /**
@@ -1683,7 +1683,7 @@ export interface components {
             shadow_offset_y?: number;
         };
         Element: components["schemas"]["SharedElementProperties"] & (components["schemas"]["TextElement"] | components["schemas"]["ImageElement"] | components["schemas"]["ButtonElement"] | components["schemas"]["LogoElement"] | components["schemas"]["ShapeElement"] | components["schemas"]["RatingElement"] | components["schemas"]["IllustrationElement"] | components["schemas"]["QRCodeElement"] | components["schemas"]["VideoElement"] | components["schemas"]["AudioElement"]);
-        /** @description Same as `Element`, but its image element also exposes AI generation properties (`text_to_image`, inpainting, background removal model, AI expand/outpainting) that are only available for asynchronous generation. */
+        /** @description Same as `Element`, but its image element also exposes AI generation properties (`text_to_image`, inpainting, background removal model, AI expand/outpainting, AI upscale) that are only available for asynchronous generation. */
         AsyncElement: components["schemas"]["SharedElementProperties"] & (components["schemas"]["TextElement"] | components["schemas"]["AsyncImageElement"] | components["schemas"]["ButtonElement"] | components["schemas"]["LogoElement"] | components["schemas"]["ShapeElement"] | components["schemas"]["RatingElement"] | components["schemas"]["IllustrationElement"] | components["schemas"]["QRCodeElement"] | components["schemas"]["VideoElement"] | components["schemas"]["AudioElement"]);
         TextElement: {
             payload?: components["schemas"]["payload"];
@@ -1855,7 +1855,7 @@ export interface components {
                 focus_target?: "largest" | "left" | "middle" | "right" | "all";
             };
         };
-        /** @description Image element properties available for asynchronous generation, including AI image generation, inpainting, background removal model selection, and AI expand/outpainting. */
+        /** @description Image element properties available for asynchronous generation, including AI image generation, inpainting, background removal model selection, AI expand/outpainting, and AI upscale. */
         AsyncImageElement: {
             image_url?: components["schemas"]["imageUrl"];
             image_encoded?: components["schemas"]["imageEncoded"];
@@ -1957,6 +1957,13 @@ export interface components {
              */
             expand?: boolean;
             expand_properties?: components["schemas"]["ExpandProperties"];
+            /**
+             * @description Activates AI-powered upscaling: the source image is re-rendered at a higher resolution
+             *     by an AI model, recovering detail instead of interpolating pixels.
+             *     `true` uses `upscale_properties`.
+             */
+            upscale?: boolean;
+            upscale_properties?: components["schemas"]["UpscaleProperties"];
         };
         /** @description Settings for AI-powered image expansion (outpainting). */
         ExpandProperties: {
@@ -1965,6 +1972,29 @@ export interface components {
              * @enum {string}
              */
             model?: "image-outpaint" | "flux-2-pro-outpaint" | "bria-expand";
+        };
+        /** @description Settings for AI-powered upscaling. */
+        UpscaleProperties: {
+            /**
+             * @description Model used for upscaling. Default is `seedvr-upscale`.
+             *     Each model caps its output size and accepts its own `upscale_factor` values:
+             *
+             *     | Model | `upscale_factor` | Max output |
+             *     |---|---|---|
+             *     | `seedvr-upscale` | 1, 2, 3, 4 | 64 MP |
+             *     | `topaz-precision` | 1, 2, 3, 4 | 72 MP |
+             *     | `crystal-upscaler` | 1, 2, 3, 4 | 16 MP |
+             *     | `bria-increase-resolution` | 2, 4 | 8192 px |
+             * @enum {string}
+             */
+            model?: "seedvr-upscale" | "topaz-precision" | "crystal-upscaler" | "bria-increase-resolution";
+            /**
+             * @description Multiplier applied to the source image's width and height. Default is `2`.
+             *     `1` keeps the dimensions and only enhances detail. `bria-increase-resolution` accepts
+             *     `2` and `4` only.
+             * @enum {number}
+             */
+            upscale_factor?: 1 | 2 | 3 | 4;
         };
         /** @description Settings for AI image generation or inpainting. */
         TextToImageProperties: {
@@ -1979,7 +2009,7 @@ export interface components {
              *     [Text to Image & Inpainting guide](https://developers.abyssale.com/rest-api/generation/element-properties/image#text-to-image-inpainting) for the full table.
              * @enum {string}
              */
-            model?: "gemini-3-pro" | "gemini-2.5-flash" | "gemini-3.1-flash" | "kling-image-o3" | "wan-2.7" | "gpt-image-1.5" | "flux-2-pro" | "qwen-2511" | "nano-banana" | "nano-banana-2" | "nano-banana-pro" | "seedream-4.5" | "gpt-image-2" | "grok-imagine" | "flux-2-klein-9b";
+            model?: "gemini-3-pro" | "gemini-2.5-flash" | "gemini-3.1-flash" | "kling-image-o3" | "wan-2.7" | "gpt-image-1.5" | "flux-2-pro" | "qwen-2511" | "nano-banana" | "nano-banana-2" | "nano-banana-pro" | "seedream-4.5" | "gpt-image-2" | "grok-imagine" | "flux-2-klein-9b" | "gpt-image-2.5-sunburst" | "gpt-image-2.5-flare" | "seedream-5-pro";
             /**
              * @description Aspect ratio or size of the output (e.g. `16:9`, `square_hd`, `1024x1024`).
              *     Allowed values depend on the selected `model` — see the
@@ -2085,7 +2115,7 @@ export interface components {
         Elements: {
             [key: string]: components["schemas"]["RootElement"] | components["schemas"]["Element"] | components["schemas"]["VideoElement"] | components["schemas"]["AudioElement"] | components["schemas"]["ElementVars"];
         };
-        /** @description Same as `Elements`, but its image element also exposes AI generation properties (`text_to_image`, inpainting, background removal model, AI expand/outpainting) that are only available for asynchronous generation. */
+        /** @description Same as `Elements`, but its image element also exposes AI generation properties (`text_to_image`, inpainting, background removal model, AI expand/outpainting, AI upscale) that are only available for asynchronous generation. */
         AsyncElements: {
             [key: string]: components["schemas"]["RootElement"] | components["schemas"]["AsyncElement"] | components["schemas"]["VideoElement"] | components["schemas"]["AudioElement"] | components["schemas"]["ElementVars"];
         };
@@ -2282,7 +2312,7 @@ export interface components {
         /**
          * @description **The background color displayed behind the element.**
          *
-         *     3 filling modes are available:
+         *     4 filling modes are available:
          *     - `Hex`: `#RRGGBB`, `#RRGGBBAA`, `#RGB` or `#RGBA` (the 8- and 4-digit forms carry alpha). _i.e. #EAEAEA or #FF00FF55_
          *     - `Linear Gradient`: `linear-gradient(x1% y1% x2% y2%,offset1% color1 opacity1,offset2% color2 opacity2[,...])` with 2 to 8 color stops, each at its own offset. _i.e. linear-gradient(0% 0% 100% 0%,0% #1a47ff 1,100% #b65151 1)_
          *       - offset: `0%` to `100%`;
@@ -2290,6 +2320,7 @@ export interface components {
          *       - opacity: `0` to `1`.
          *
          *       No space after a comma.
+         *     - `Radial Gradient`: `radial-gradient(cx% cy% r%,offset1% color1 opacity1,offset2% color2 opacity2[,...])`, the same stops as a linear gradient around a centre (`cx% cy%`) with a radius `r%` above 0. Each value is a percent of the element's box, so on an element that is not square the gradient is an ellipse fitted to it. _i.e. radial-gradient(50% 50% 71%,0% #1a47ff 1,100% #b65151 1)_
          *     - `CMYK` (for print; converted to RGB on other designs): `cmyk(C,M,Y,K)` or `cmyka(C,M,Y,K,A)`, each component an integer 0–100, optionally followed by `%`. _i.e. cmyk(0,100,100,0)_
          *
          *     On a `printer` / `printer_multipage` design a gradient is accepted only on the
@@ -2314,7 +2345,7 @@ export interface components {
         /**
          * @description **The text color.**
          *
-         *     3 filling modes are available:
+         *     4 filling modes are available:
          *     - `Hex`: `#RRGGBB`, `#RRGGBBAA`, `#RGB` or `#RGBA` (the 8- and 4-digit forms carry alpha). _i.e. #EAEAEA or #FF00FF55_
          *     - `Linear Gradient`: `linear-gradient(x1% y1% x2% y2%,offset1% color1 opacity1,offset2% color2 opacity2[,...])` with 2 to 8 color stops, each at its own offset. _i.e. linear-gradient(0% 0% 100% 0%,0% #1a47ff 1,100% #b65151 1)_
          *       - offset: `0%` to `100%`;
@@ -2322,6 +2353,7 @@ export interface components {
          *       - opacity: `0` to `1`.
          *
          *       No space after a comma.
+         *     - `Radial Gradient`: `radial-gradient(cx% cy% r%,offset1% color1 opacity1,offset2% color2 opacity2[,...])`, the same stops as a linear gradient around a centre (`cx% cy%`) with a radius `r%` above 0. Each value is a percent of the element's box, so on an element that is not square the gradient is an ellipse fitted to it. _i.e. radial-gradient(50% 50% 71%,0% #1a47ff 1,100% #b65151 1)_
          *     - `CMYK` (for print; converted to RGB on other designs): `cmyk(C,M,Y,K)` or `cmyka(C,M,Y,K,A)`, each component an integer 0–100, optionally followed by `%`. _i.e. cmyk(0,100,100,0)_
          *
          *     A gradient is not accepted on a `printer` / `printer_multipage` design: print text is
