@@ -2,6 +2,13 @@
 
 All notable changes to `@abyssale/sdk` are documented here.
 
+## Unreleased
+
+Types regenerated against the current `v2026-10-07` spec: a design import's `textEffect`
+keyframes may carry `textEffectSplit` (`letter`, the default, `word` or `line`), the unit the
+text effect reveals at a time. The keyframe `attr` type is an open map, so no type changed; only
+its documentation did.
+
 ## [1.7.0] — 2026-10-07
 
 Types regenerated against API version `v2026-10-07`, which also brings `v2026-10-02`. Minor, not
