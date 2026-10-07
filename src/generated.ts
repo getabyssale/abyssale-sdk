@@ -58,11 +58,16 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List all designs
-         * @description Retrieve all designs available in your Abyssale workspace. Each design defines
+         * List and search designs
+         * @description Retrieve the designs available in your Abyssale workspace. Each design defines
          *     the visual layout, available formats (dimensions), and configurable elements
          *     (text, images, shapes, etc.) that can be overridden during image generation.
-         *     Filter by design type or project using query parameters.
+         *
+         *     Filter by design type, project, format (`orientation`, `size`, `format`) or date
+         *     (`updated_since`, `created_since`), search by words (`query`) or exact phrases (`name`,
+         *     `project`), sort, and page. Every one of these is optional: without them the answer is
+         *     unchanged — every design, ordered by name, as a bare array. The number of matches is in
+         *     the `X-Total-Count` header.
          *
          *     A design lives in a **project**. Organisation-level master designs are *workspace
          *     templates*, live in a **category**, and are listed by `GET /workspace-templates`
@@ -442,10 +447,14 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List available fonts
-         * @description Retrieve all fonts available in your Abyssale workspace, including Google Fonts
-         *     and any custom fonts you have uploaded. Use a font's `id` to override the font
-         *     on text or button elements in a generation request.
+         * List and search fonts
+         * @description Retrieve the fonts available in your Abyssale workspace, including Google Fonts
+         *     and any custom fonts you have uploaded, ordered by name. Use a font's `id` to override
+         *     the font on text or button elements in a generation request.
+         *
+         *     Search by `name`, filter by `category`, `weight` and `style`, and page — all optional: without
+         *     them every font is returned, as a bare array. The number of matches is in the
+         *     `X-Total-Count` header.
          */
         get: operations["listFonts"];
         put?: never;
@@ -557,9 +566,13 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List projects
-         * @description Retrieve all projects in your workspace. Projects group designs into logical
-         *     collections. Only designs that belong to a project are accessible via the API.
+         * List and search projects
+         * @description Retrieve the projects in your workspace, ordered by name. Projects group designs into
+         *     logical collections. Only designs that belong to a project are accessible via the API.
+         *
+         *     Filter by `name` and page with `page` / `per_page` — both optional: without them every
+         *     project is returned, as a bare array. The number of matches is in the `X-Total-Count`
+         *     header. Pass a project's `id` as `project_id` to `GET /designs` to list its designs.
          */
         get: operations["listProjects"];
         put?: never;
@@ -839,7 +852,7 @@ export interface components {
          *
          *     The value changes when a new version is released. Match the `vYYYY-MM-DD` shape rather than
          *     pinning today's literal, or your client breaks on the next release.
-         * @example v2026-10-01
+         * @example v2026-10-07
          */
         ApiVersion: string;
         /**
@@ -1617,6 +1630,12 @@ export interface components {
             name: string;
             available_weights: ((100 | 200 | 300 | 400 | 500 | 600 | 700 | 800 | 900) | ("100-italic" | "200-italic" | "300-italic" | "400-italic" | "500-italic" | "600-italic" | "700-italic" | "800-italic" | "900-italic"))[];
             /**
+             * @description The Google Fonts category of a Google font. Absent on custom fonts, which have none.
+             * @example monospace
+             * @enum {string}
+             */
+            category?: "serif" | "sans-serif" | "display" | "handwriting" | "monospace";
+            /**
              * @description Either `google` for the Google fonts or `custom` for your uploaded fonts.
              * @enum {string}
              */
@@ -1879,7 +1898,7 @@ export interface components {
                  * @description Background removal model to use. Default is `bria-rmbg-2-0`.
                  * @enum {string}
                  */
-                model?: "bria-rmbg-2-0" | "birefnet" | "pixelcut" | "imageUtils" | "ideogram";
+                model?: "bria-rmbg-2-0" | "birefnet" | "pixelcut" | "imageUtils" | "ideogram" | "leonardo-remove-bg";
             };
             /** @description Activates AI-powered auto-focus to detect and focus on specified objects or people within the image. */
             auto_focus?: boolean;
@@ -2732,6 +2751,10 @@ export interface components {
         };
     };
     parameters: {
+        /** @description 1-based page number. Sending `page` or `per_page` turns paging on; without either, the listing returns every match, as it always has. Below 1 answers `400 out_of_range`. */
+        Page: number;
+        /** @description Items per page when paging (see `page`). Values above 100 are treated as 100; below 1 answers `400 out_of_range`. */
+        PerPage: number;
         /**
          * @description Unique identifier (UUID) of the design. A value that is not a UUID does not match the
          *     route and answers `404` with `id: endpoint_not_found`.
@@ -2757,6 +2780,11 @@ export interface components {
          * @example 1786000020
          */
         XRateLimitReset: number;
+        /**
+         * @description How many items match the filters, across all pages. Sent whether or not a page was cut, and still the real total on a page past the end (which comes back as an empty array).
+         * @example 340
+         */
+        XTotalCount: number;
         /**
          * @description Seconds to wait before retrying. Sent only on a `429 request_rate_limited`, and never
          *     `0` — retrying sooner will be refused again.
@@ -2806,8 +2834,59 @@ export interface operations {
             query?: {
                 /** @description Unique identifier (UUID) of a project. Filter designs by project. */
                 project_id?: string;
-                /** @description Filter designs by one of these types: static, animated, printer, printer_multipage. An unknown value is **ignored** and the full unfiltered list is returned — this never answers 400 (long-standing behavior existing integrations rely on). */
-                type?: "static" | "animated" | "printer" | "printer_multipage";
+                /**
+                 * @description Filter designs by type — one, or several comma-separated (`type=printer,printer_multipage`). An unknown value is **ignored** (and with no known value left, the full unfiltered list is returned) — this never answers 400 (long-standing behavior existing integrations rely on).
+                 * @example [
+                 *       "printer",
+                 *       "printer_multipage"
+                 *     ]
+                 */
+                type?: ("static" | "animated" | "printer" | "printer_multipage")[];
+                /** @description Only designs with at least one format of this shape. An unknown value answers `400 unknown_enum_value`. */
+                orientation?: "portrait" | "landscape" | "square";
+                /**
+                 * @description Only designs with at least one format of this size — `<width>x<height>`, one or several comma-separated (at most 10), in the design's own unit: pixels for screen designs, mm or inches for print (`210x297` is an A4, `8.5x11` a US Letter). A value that is not `<width>x<height>` answers `400 wrong_type`.
+                 * @example [
+                 *       "1080x1920",
+                 *       "1080x1080"
+                 *     ]
+                 */
+                size?: string[];
+                /**
+                 * @description Only designs with a format of this name — the format id that generation takes as `template_format_name`. One or several, comma-separated (at most 10).
+                 * @example [
+                 *       "facebook-post",
+                 *       "instagram-story"
+                 *     ]
+                 */
+                format?: string[];
+                /**
+                 * @description Only designs last saved in the editor at or after this moment: an ISO 8601 date (midnight UTC) or date-time (UTC when it has no offset). Anything else answers `400 wrong_type`.
+                 * @example 2026-09-28
+                 */
+                updated_since?: string;
+                /**
+                 * @description Only designs created at or after this moment, in the same format as `updated_since`.
+                 * @example 2026-09-01T00:00:00Z
+                 */
+                created_since?: string;
+                /**
+                 * @description Words to find, in any order. Every word must appear in the design name **or** the project name, ignoring case and accents. Words are split on spaces and on `-` `_` `|` `/` `·`, so `black friday` matches `Black-Friday – Story`. At most 8 words; more answers `400 out_of_range`.
+                 * @example black friday story
+                 */
+                query?: string;
+                /** @description One exact phrase that must appear in the design name (case- and accent-insensitive). */
+                name?: string;
+                /** @description One exact phrase that must appear in the project name. Several projects can match; use `project_id` for exactly one. */
+                project?: string;
+                /** @description `updated` is the last time the design was saved in the editor (renaming or moving a design does not count); `created` is its creation. An unknown value answers `400 unknown_enum_value`. */
+                sort?: "name" | "updated" | "created";
+                /** @description Defaults to `asc` (A to Z) for `name` and `desc` (newest first) for `updated` and `created`. An unknown value answers `400 unknown_enum_value`. */
+                order?: "asc" | "desc";
+                /** @description 1-based page number. Sending `page` or `per_page` turns paging on; without either, the listing returns every match, as it always has. Below 1 answers `400 out_of_range`. */
+                page?: components["parameters"]["Page"];
+                /** @description Items per page when paging (see `page`). Values above 100 are treated as 100; below 1 answers `400 out_of_range`. */
+                per_page?: components["parameters"]["PerPage"];
             };
             header?: never;
             path?: never;
@@ -2815,9 +2894,10 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The workspace's designs. */
+            /** @description The matching designs — every one, or one page when `page` / `per_page` is sent. */
             200: {
                 headers: {
+                    "X-Total-Count": components["headers"]["XTotalCount"];
                     "X-RateLimit-Limit": components["headers"]["XRateLimitLimit"];
                     "X-RateLimit-Remaining": components["headers"]["XRateLimitRemaining"];
                     "X-RateLimit-Reset": components["headers"]["XRateLimitReset"];
@@ -2835,8 +2915,12 @@ export interface operations {
                 };
             };
             /**
-             * @description `project_id` is not a UUID. An unknown `type` is ignored rather than rejected, so it
-             *     never answers `400`.
+             * @description `project_id` is not a UUID; or a filter, search, sort or paging parameter is invalid —
+             *     `orientation`, `sort` or `order` unknown (`unknown_enum_value`); more than 8 `query`
+             *     words, more than 10 `size` / `format` / `type` values, or `page` / `per_page` below 1
+             *     (`out_of_range`); a `size` that is not `<width>x<height>`, a date that is not ISO 8601,
+             *     or a `page` / `per_page` that is not a number (`wrong_type`). An unknown `type` is
+             *     ignored rather than rejected, and so is a parameter this endpoint does not define.
              *
              *     The reported `path` is always `category_id`, whichever of the two spellings you
              *     sent — `category_id` is the deprecated alias of `project_id` and the two share one
@@ -3516,6 +3600,21 @@ export interface operations {
             query?: {
                 /** @description Filter fonts by type. Omit to return both Google and custom fonts. An unknown value is **ignored** and the full unfiltered list is returned — this never answers 400 (long-standing behavior existing integrations rely on). */
                 type?: "google" | "custom";
+                /**
+                 * @description Text in the font name, matched ignoring case, accents, spaces, hyphens and underscores (`OpenSans` finds `Open Sans`). Exact names come first, then names starting with the text, then the rest — alphabetically within each.
+                 * @example open sans
+                 */
+                name?: string;
+                /** @description Only Google fonts of this category. Custom fonts have no category, so they never match. An unknown value answers `400 unknown_enum_value`. */
+                category?: "serif" | "sans-serif" | "display" | "handwriting" | "monospace";
+                /** @description Only fonts available in this weight (`700` is bold): upright, or italic with `style=italic`. Any other value answers `400 out_of_range`. */
+                weight?: 100 | 200 | 300 | 400 | 500 | 600 | 700 | 800 | 900;
+                /** @description Only fonts with a variant in this style. With `weight`, that weight in that style (`weight=700&style=italic` keeps fonts that have `700-italic`). Apply an italic variant at generation with text markup: `<w=italic>…</w>`, or `<w=700-italic>…</w>`. An unknown value answers `400 unknown_enum_value`. */
+                style?: "normal" | "italic";
+                /** @description 1-based page number. Sending `page` or `per_page` turns paging on; without either, the listing returns every match, as it always has. Below 1 answers `400 out_of_range`. */
+                page?: components["parameters"]["Page"];
+                /** @description Items per page when paging (see `page`). Values above 100 are treated as 100; below 1 answers `400 out_of_range`. */
+                per_page?: components["parameters"]["PerPage"];
             };
             header?: never;
             path?: never;
@@ -3526,6 +3625,7 @@ export interface operations {
             /** @description The fonts available to this workspace. */
             200: {
                 headers: {
+                    "X-Total-Count": components["headers"]["XTotalCount"];
                     "X-RateLimit-Limit": components["headers"]["XRateLimitLimit"];
                     "X-RateLimit-Remaining": components["headers"]["XRateLimitRemaining"];
                     "X-RateLimit-Reset": components["headers"]["XRateLimitReset"];
@@ -3533,6 +3633,35 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Font"][];
+                };
+            };
+            /** @description A search or paging parameter is invalid: an unknown `category` or `style` (`unknown_enum_value`), a `weight` that is not 100–900 by hundreds, or `page` / `per_page` below 1 (`out_of_range`), or not a number (`wrong_type`). An unknown `type` is ignored. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "id": "unknown_enum_value",
+                     *       "message": "unknown category script",
+                     *       "errors": [
+                     *         {
+                     *           "path": "category",
+                     *           "code": "unknown_enum_value",
+                     *           "message": "Must be one of: display, handwriting, monospace, sans-serif, serif.",
+                     *           "expected": [
+                     *             "display",
+                     *             "handwriting",
+                     *             "monospace",
+                     *             "sans-serif",
+                     *             "serif"
+                     *           ]
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
             401: components["responses"]["Unauthorized"];
@@ -3769,7 +3898,14 @@ export interface operations {
     };
     listProjects: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description One exact phrase that must appear in the project name (case- and accent-insensitive). */
+                name?: string;
+                /** @description 1-based page number. Sending `page` or `per_page` turns paging on; without either, the listing returns every match, as it always has. Below 1 answers `400 out_of_range`. */
+                page?: components["parameters"]["Page"];
+                /** @description Items per page when paging (see `page`). Values above 100 are treated as 100; below 1 answers `400 out_of_range`. */
+                per_page?: components["parameters"]["PerPage"];
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -3779,6 +3915,7 @@ export interface operations {
             /** @description The workspace's projects. */
             200: {
                 headers: {
+                    "X-Total-Count": components["headers"]["XTotalCount"];
                     "X-RateLimit-Limit": components["headers"]["XRateLimitLimit"];
                     "X-RateLimit-Remaining": components["headers"]["XRateLimitRemaining"];
                     "X-RateLimit-Reset": components["headers"]["XRateLimitReset"];
@@ -3786,6 +3923,28 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProjectSummary"][];
+                };
+            };
+            /** @description `page` or `per_page` is below 1 (`out_of_range`) or not a number (`wrong_type`). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "id": "out_of_range",
+                     *       "message": "per_page must be at least 1",
+                     *       "errors": [
+                     *         {
+                     *           "path": "per_page",
+                     *           "code": "out_of_range",
+                     *           "message": "Must be at least 1, got 0."
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
             401: components["responses"]["Unauthorized"];

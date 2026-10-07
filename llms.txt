@@ -14,8 +14,8 @@ images, colors, and other properties dynamically.
 It provides a zero-config singleton with 24 typed methods covering the full API surface,
 plus built-in polling helpers with exponential backoff. Configuration is done via the
 `ABYSSALE_API_KEY` environment variable. The SDK ships as dual ESM/CJS with full
-TypeScript types generated from the OpenAPI spec. Version 1.6.0 tracks API version
-`v2026-10-01` and covers every operation that spec publishes, except the Alpha design-import
+TypeScript types generated from the OpenAPI spec. Version 1.7.0 tracks API version
+`v2026-10-07` and covers every operation that spec publishes, except the Alpha design-import
 endpoints, which are deliberately excluded while their contract can still change.
 
 ## Installation
@@ -29,7 +29,7 @@ Set the environment variable `ABYSSALE_API_KEY` to your Abyssale API key.
 ## Methods
 
 - `verifyApiKey()` — Verify the API key and return the workspace it belongs to; every failure is a 401
-- `listDesigns(query?)` — List all designs in the workspace, with optional filtering by project or type
+- `listDesigns(query?)` — List the designs in the workspace; search (`query`, `name`, `project`, `project_id`), filter by `type`, `orientation`, `size`, `format`, `updated_since`, `created_since` (`type`, `size`, `format` take a list), `sort`/`order`, and page with `page`/`per_page`
 - `getDesign(designId, options?)` — Full design spec: formats, elements, variables; `{ advanced: true }` also returns `group` layers
 - `getDesignFormat(designId, formatSpecifier)` — Get details for a specific format within a design
 - `generateImage(designId, body)` — Synchronously generate a single image; returns the file URL immediately
@@ -38,10 +38,11 @@ Set the environment variable `ABYSSALE_API_KEY` to your Abyssale API key.
 - `getGenerationRequest(generationRequestId)` — Poll the status of an async generation request once
 - `waitForGenerationRequest(generationRequestId, options?)` — Poll with exponential backoff until complete; throws on timeout, and when the request finalized with no banners at all (partial success resolves — check `result.errors`)
 - `waitForDuplicationRequest(duplicateRequestId, options?)` — Poll template duplication until COMPLETED or ERROR
+- `totalCount(response)` — The number of matches across all pages, from the `X-Total-Count` header of `listDesigns`, `listFonts` and `listProjects`
 - `getFile(bannerId)` — Retrieve metadata and CDN download URL for a generated file
-- `listFonts()` — List all fonts available in the workspace (Google Fonts + custom uploads)
+- `listFonts(query?)` — List the fonts available in the workspace (Google Fonts + custom uploads); filter by `name`, `category`, `weight`, `style`, page with `page`/`per_page`
 - `getCredits()` — Read the workspace's remaining generation and AI credits for the current billing period; costs no credits. `available`/`limit` are `null` on an unlimited plan, and `available` counts the recurring allowance only — what a request can spend is `available + extra`
-- `listProjects()` — List all projects in the workspace
+- `listProjects(query?)` — List the projects in the workspace; filter by `name`, page with `page`/`per_page`
 - `createProject(body)` — Create a new project to organise designs
 - `exportBanners(body)` — Asynchronously package a set of banners into a ZIP archive for download
 - `createDynamicImageUrl(designId, body?)` — Create a live image URL that renders on-the-fly from query parameters; the body is optional, both flags default server-side

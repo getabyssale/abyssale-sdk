@@ -9,7 +9,7 @@ Types are auto-generated from the public OpenAPI spec at `https://developers.aby
 ```
 src/generated.ts       ← auto-generated types (openapi-typescript) — never edit manually
 src/middleware.ts      ← retry (5xx, a 429 with Retry-After, one probe for a bare 429) + timeout middleware
-src/index.ts           ← singleton export: 22 named methods + 2 polling helpers + public type re-exports
+src/index.ts           ← singleton export: 22 named methods + 2 polling helpers + `totalCount` + public type re-exports
 dist/                  ← compiled output — built by tsup, gitignored, produced at publish time
 scripts/fetch-spec.mjs ← fetches the spec and strips the Alpha design-import surface
 ```

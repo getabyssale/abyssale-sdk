@@ -2,6 +2,26 @@
 
 All notable changes to `@abyssale/sdk` are documented here.
 
+## [1.7.0] — 2026-10-07
+
+Types regenerated against API version `v2026-10-07`, which also brings `v2026-10-02`. Minor, not
+patch: the three listings gained parameters. Every existing call keeps working, including
+`listDesigns({ type: 'static' })`: `type` now also takes a list.
+
+### Added
+
+- **Search, filters, sort and paging on `listDesigns`** (`v2026-10-07`): `query` (words in any
+  order, in the design or the project name), `name`, `project`, `orientation`, `size`, `format`,
+  `updated_since`, `created_since`, `sort`, `order`, `page` and `per_page`. `type`, `size` and
+  `format` take one value or a list, sent comma-separated as the API expects.
+- **Filters and paging on `listFonts`** (`name`, `category`, `weight`, `style`) **and
+  `listProjects`** (`name`). Both took no argument before.
+- **`totalCount(response)`**, also on the default export: the number of matches across all pages,
+  read from the `X-Total-Count` header the three listings send.
+- **Types**: `ListDesignsQuery`, `ListFontsQuery`, `ListProjectsQuery`, `DesignType`; `Font`
+  gains `category` (Google fonts); `leonardo-remove-bg` joins the background-removal `model` union
+  (`v2026-10-02`).
+
 ## [1.6.0] — 2026-10-01
 
 Types regenerated against API version `v2026-10-01`, which also brings `v2026-09-30`. Minor, not
