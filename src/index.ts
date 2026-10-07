@@ -51,8 +51,23 @@ type CreateProjectBody =
   operations["createProject"]["requestBody"]["content"]["application/json"];
 type DuplicateWorkspaceTemplateBody =
   operations["duplicateWorkspaceTemplate"]["requestBody"]["content"]["application/json"];
-type ListDesignsQuery = NonNullable<
+type ListDesignsSpecQuery = NonNullable<
   operations["listDesigns"]["parameters"]["query"]
+>;
+/** One value or several: `'static'` or `['static', 'animated']`. */
+type OneOrMany<T> = T | T[];
+export type DesignType = NonNullable<ListDesignsSpecQuery["type"]>[number];
+/** `listDesigns` filters. `type`, `size` and `format` take one value or a list (at most 10). */
+export type ListDesignsQuery = Omit<ListDesignsSpecQuery, "type" | "size" | "format"> & {
+  type?: OneOrMany<DesignType>;
+  size?: OneOrMany<string>;
+  format?: OneOrMany<string>;
+};
+export type ListFontsQuery = NonNullable<
+  operations["listFonts"]["parameters"]["query"]
+>;
+export type ListProjectsQuery = NonNullable<
+  operations["listProjects"]["parameters"]["query"]
 >;
 type ListWorkspaceTemplatesQuery = NonNullable<
   operations["listWorkspaceTemplates"]["parameters"]["query"]
@@ -97,6 +112,28 @@ _client.use(timeoutMiddleware(timeoutMs));
 // Registered after the timeout middleware so its `onResponse` runs first (openapi-fetch walks
 // response middleware in reverse). It takes `timeoutMs` because it re-arms the timeout per attempt.
 _client.use(retryMiddleware(maxRetries, timeoutMs));
+
+/** The spec's list params are arrays; a single value is sent as a one-item list. */
+function asList<T>(value: OneOrMany<T> | undefined): T[] | undefined {
+  if (value === undefined) return undefined;
+  return Array.isArray(value) ? value : [value];
+}
+
+// The API reads a list param as one comma-separated value (`type=static,animated`), not as a
+// repeated param: `type=static&type=animated` would keep only one of them.
+const commaSeparatedLists = { array: { style: "form", explode: false } } as const;
+
+/**
+ * The number of matches across all pages, from the `X-Total-Count` header that `listDesigns`,
+ * `listFonts` and `listProjects` send — or `undefined` when the response has none.
+ * @example
+ * const result = await abyssale.listDesigns({ query: 'black friday', per_page: 25 });
+ * console.log(totalCount(result.response)); // e.g. 42, while result.data holds the first 25
+ */
+export function totalCount(response: Response): number | undefined {
+  const raw = response.headers.get("X-Total-Count");
+  return raw === null || raw === "" ? undefined : Number(raw);
+}
 
 // ── SDK singleton ─────────────────────────────────────────────────────────────
 // Each method returns { data, error, response } — never throws on HTTP errors.
@@ -170,13 +207,39 @@ const abyssale = {
   // ── Designs ──────────────────────────────────────────────────────────────
 
   /**
-   * List all designs in the workspace.
-   * Optionally filter by `project_id` or `type` (static, animated, printer, printer_multipage).
+   * List the designs in the workspace, every one by default, ordered by name.
+   *
+   * Every filter is optional and they combine:
+   * - `query` (words in any order, each in the design or the project name), `name`, `project`,
+   *   `project_id`;
+   * - `type`: one or several of static, animated, printer, printer_multipage;
+   * - `orientation` (portrait, landscape, square), `size` (`'1080x1920'`, or `'210x297'` for an A4
+   *   print design) and `format` (format names): one of the design's formats must match them all;
+   *   `size` and `format` take a list;
+   * - `updated_since` / `created_since`: an ISO 8601 date or date-time;
+   * - `sort` (`name`, `updated`, `created`) and `order`;
+   * - `page` / `per_page` turn paging on; `totalCount(response)` gives the number of matches.
    * @example
-   * const { data, error } = await abyssale.listDesigns({ type: 'static' });
+   * const { data, error, response } = await abyssale.listDesigns({
+   *   type: ['static', 'animated'],
+   *   orientation: 'portrait',
+   *   updated_since: '2026-09-28',
+   *   sort: 'updated',
+   *   per_page: 25,
+   * });
    */
   listDesigns: (query?: ListDesignsQuery) =>
-    _client.GET("/designs", { params: { query } }),
+    _client.GET("/designs", {
+      params: {
+        query: query && {
+          ...query,
+          type: asList(query.type),
+          size: asList(query.size),
+          format: asList(query.format),
+        },
+      },
+      querySerializer: commaSeparatedLists,
+    }),
 
   /**
    * Get the full specification of a design: formats, elements, and variables.
@@ -294,10 +357,16 @@ const abyssale = {
   // ── Fonts ─────────────────────────────────────────────────────────────────
 
   /**
-   * List all fonts available in the workspace (Google Fonts + custom uploads).
+   * List the fonts available in the workspace (Google Fonts + custom uploads), every one by default.
    * Use a font's `id` to override the font in a generation request.
+   *
+   * Filter by `name` (ignores case, accents and spaces, exact names first), `category` (Google
+   * fonts only), `weight` (`700` is bold) and `style` (`italic`), and page with `page` / `per_page`.
+   * @example
+   * const { data } = await abyssale.listFonts({ category: 'serif', weight: 700, style: 'italic' });
    */
-  listFonts: () => _client.GET("/fonts"),
+  listFonts: (query?: ListFontsQuery) =>
+    _client.GET("/fonts", { params: { query } }),
 
   // ── Credits ───────────────────────────────────────────────────────────────
 
@@ -318,10 +387,15 @@ const abyssale = {
   // ── Projects ──────────────────────────────────────────────────────────────
 
   /**
-   * List all projects in the workspace.
+   * List the projects in the workspace, every one by default, ordered by name.
    * Only designs belonging to a project are accessible via the API.
+   *
+   * Filter by `name` (one exact phrase) and page with `page` / `per_page`.
+   * @example
+   * const { data } = await abyssale.listProjects({ name: 'summer' });
    */
-  listProjects: () => _client.GET("/projects"),
+  listProjects: (query?: ListProjectsQuery) =>
+    _client.GET("/projects", { params: { query } }),
 
   /**
    * Create a new project to organise your designs.
@@ -645,4 +719,5 @@ function waitForDuplicationRequest(
 export default Object.assign(abyssale, {
   waitForGenerationRequest,
   waitForDuplicationRequest,
+  totalCount,
 });
