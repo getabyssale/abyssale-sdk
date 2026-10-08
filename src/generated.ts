@@ -1383,7 +1383,7 @@ export interface components {
                     type?: "slide" | "fade" | "scale" | "rotate" | "audioFade" | "textEffect";
                     keyframes?: ({
                         /**
-                         * @description The properties this keyframe sets, as a map of property name to value: `{"opacity": 0}` (fade), `{"left": 1021, "top": 347}` (slide — always both), `{"scale": 120}` (scale), `{"angle": -100}` (rotate), `{"volumeEffect": 0}` (audioFade), `{"typewriting": 100, "textEffectType": "classic"}` (textEffect). Values are numbers, except `textEffectType` which is a string.
+                         * @description The properties this keyframe sets, as a map of property name to value: `{"opacity": 0}` (fade), `{"left": 1021, "top": 347}` (slide — always both), `{"scale": 120}` (scale), `{"angle": -100}` (rotate), `{"volumeEffect": 0}` (audioFade), `{"typewriting": 100, "textEffectType": "classic", "textEffectSplit": "word"}` (textEffect). Values are numbers, except `textEffectType` and `textEffectSplit` which are names.
                          * @example {
                          *       "left": 1021,
                          *       "top": 347
