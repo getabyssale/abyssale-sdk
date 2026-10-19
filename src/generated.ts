@@ -852,7 +852,7 @@ export interface components {
          *
          *     The value changes when a new version is released. Match the `vYYYY-MM-DD` shape rather than
          *     pinning today's literal, or your client breaks on the next release.
-         * @example v2026-10-07
+         * @example v2026-10-19
          */
         ApiVersion: string;
         /**
@@ -1383,7 +1383,7 @@ export interface components {
                     type?: "slide" | "fade" | "scale" | "rotate" | "audioFade" | "textEffect";
                     keyframes?: ({
                         /**
-                         * @description The properties this keyframe sets, as a map of property name to value: `{"opacity": 0}` (fade), `{"left": 1021, "top": 347}` (slide — always both), `{"scale": 120}` (scale), `{"angle": -100}` (rotate), `{"volumeEffect": 0}` (audioFade), `{"typewriting": 100, "textEffectType": "classic"}` (textEffect). Values are numbers, except `textEffectType` which is a string.
+                         * @description The properties this keyframe sets, as a map of property name to value: `{"opacity": 0}` (fade), `{"left": 1021, "top": 347}` (slide — always both), `{"scale": 120}` (scale), `{"angle": -100}` (rotate), `{"volumeEffect": 0}` (audioFade), `{"typewriting": 100, "textEffectType": "classic", "textEffectSplit": "word", "textEffectTiming": "in"}` (textEffect). Values are numbers, except `textEffectType`, `textEffectSplit` and `textEffectTiming` which are names.
                          * @example {
                          *       "left": 1021,
                          *       "top": 347
@@ -2028,7 +2028,7 @@ export interface components {
              *     [Text to Image & Inpainting guide](https://developers.abyssale.com/rest-api/generation/element-properties/image#text-to-image-inpainting) for the full table.
              * @enum {string}
              */
-            model?: "gemini-3-pro" | "gemini-2.5-flash" | "gemini-3.1-flash" | "kling-image-o3" | "wan-2.7" | "gpt-image-1.5" | "flux-2-pro" | "qwen-2511" | "nano-banana" | "nano-banana-2" | "nano-banana-pro" | "seedream-4.5" | "gpt-image-2" | "grok-imagine" | "flux-2-klein-9b" | "gpt-image-2.5-sunburst" | "gpt-image-2.5-flare" | "seedream-5-pro";
+            model?: "gemini-3-pro" | "gemini-2.5-flash" | "gemini-3.1-flash" | "kling-image-o3" | "wan-2.7" | "gpt-image-1.5" | "flux-2-pro" | "qwen-2511" | "nano-banana" | "nano-banana-2" | "nano-banana-pro" | "seedream-4.5" | "gpt-image-2" | "grok-imagine" | "flux-2-klein-9b" | "gpt-image-2.5-sunburst" | "gpt-image-2.5-flare" | "seedream-5-pro" | "ideogram-4.5";
             /**
              * @description Aspect ratio or size of the output (e.g. `16:9`, `square_hd`, `1024x1024`).
              *     Allowed values depend on the selected `model` — see the
@@ -2041,7 +2041,33 @@ export interface components {
              *     Ignored if the selected model does not support it.
              */
             quality?: string;
-            /** @description URL(s) of the image(s) to edit. When provided, switches generation to inpainting mode instead of pure text-to-image. */
+            /**
+             * @description URL(s) of the image(s) to edit. When provided, switches generation to inpainting mode
+             *     instead of pure text-to-image. The maximum number of images depends on the selected
+             *     `model`; a request with more is rejected with a validation error.
+             *
+             *     | Model | Max images |
+             *     |---|---|
+             *     | `gpt-image-2` | 16 |
+             *     | `gpt-image-2.5-flare` | 16 |
+             *     | `gpt-image-2.5-sunburst` | 16 |
+             *     | `gemini-3-pro` | 14 |
+             *     | `gemini-3.1-flash` | 14 |
+             *     | `nano-banana-2` | 14 |
+             *     | `nano-banana-pro` | 14 |
+             *     | `gpt-image-1.5` | 10 |
+             *     | `flux-2-pro` | 8 |
+             *     | `kling-image-o3` | 7 |
+             *     | `seedream-4.5` | 7 |
+             *     | `seedream-5-pro` | 7 |
+             *     | `qwen-2511` | 6 |
+             *     | `ideogram-4.5` | 5 |
+             *     | `flux-2-klein-9b` | 4 |
+             *     | `wan-2.7` | 4 |
+             *     | `gemini-2.5-flash` | 3 |
+             *     | `grok-imagine` | 3 |
+             *     | `nano-banana` | 3 |
+             */
             inpaint_images?: string[];
         };
         LogoElement: {

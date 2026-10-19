@@ -2,6 +2,26 @@
 
 All notable changes to `@abyssale/sdk` are documented here.
 
+## [1.8.0] — 2026-10-19
+
+Types regenerated against API version `v2026-10-19`, which also brings `v2026-10-12`. Minor, not
+patch: the text-to-image `model` union gained a value. Nothing was removed or narrowed, so there is
+no upgrade step beyond installing it.
+
+### Added
+
+- **`textEffect` tweens reveal a text per letter, word or line** (`v2026-10-19`): a design
+  import's keyframe `attr` may carry `textEffectSplit` (`letter`, the default, `word` or `line`)
+  and `textEffectTiming` (`in`, the default, `out` or `inOut`, the layout of an effect that plays
+  out). The keyframe `attr` type is an open map, so no type changed; only its documentation did.
+- **`ideogram-4.5`** joins the `text_to_image_properties.model` union (`v2026-10-12`).
+
+### Changed
+
+- **`inpaint_images` has a maximum per model** (`v2026-10-12`), from 3 to 16 images; the table is
+  in the field's doc comment. A request with more than the model accepts is rejected with a
+  validation error. The type is unchanged.
+
 ## [1.7.0] — 2026-10-07
 
 Types regenerated against API version `v2026-10-07`, which also brings `v2026-10-02`. Minor, not
