@@ -2,6 +2,27 @@
 
 All notable changes to `@abyssale/sdk` are documented here.
 
+## [1.9.0] — 2026-10-21
+
+Types regenerated against API version `v2026-10-21`, which also brings `v2026-10-20`. Minor, not
+patch: three methods were added and a union gained values. Nothing was removed or narrowed, so
+there is no upgrade step beyond installing it.
+
+### Added
+
+- **`renameDesign(designId, { name })`**, **`moveDesign(designId, { project_id })`** and
+  **`deleteDesign(designId)`** (`v2026-10-21`): `PUT /designs/{designId}/name`,
+  `PUT /designs/{designId}/project` and `DELETE /designs/{designId}`. All three answer a
+  `DesignNameResult` (`id`, `name`), exported as a type. Moving a design resets its approval
+  status; deleting has no restore. A design `listDesigns` does not list answers
+  `404 template_not_found`; a destination that is not a project of the workspace answers
+  `400 project_not_found`.
+- **Border on image layers** (`v2026-10-21`): `stroke_width` (0 to 60) and `stroke_color` on an
+  image element override. The frame is drawn outside the image box and follows its mask.
+- **Justified text** (`v2026-10-20`): the text element `alignment` union gains `justify`,
+  `justify-left`, `justify-center` and `justify-right`, alone or after a vertical half
+  (`"middle justify-center"`). Text layers only: a button label keeps `left`, `center`, `right`.
+
 ## [1.8.0] — 2026-10-19
 
 Types regenerated against API version `v2026-10-19`, which also brings `v2026-10-12`. Minor, not

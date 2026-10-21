@@ -11,11 +11,11 @@ images, colors, and other properties dynamically.
 ## What is this SDK?
 
 `@abyssale/sdk` is the official Node.js / TypeScript SDK for the Abyssale REST API.
-It provides a zero-config singleton with 24 typed methods covering the full API surface,
+It provides a zero-config singleton with 27 typed methods covering the full API surface,
 plus built-in polling helpers with exponential backoff. Configuration is done via the
 `ABYSSALE_API_KEY` environment variable. The SDK ships as dual ESM/CJS with full
-TypeScript types generated from the OpenAPI spec. Version 1.7.0 tracks API version
-`v2026-10-07` and covers every operation that spec publishes, except the Alpha design-import
+TypeScript types generated from the OpenAPI spec. Version 1.9.0 tracks API version
+`v2026-10-21` and covers every operation that spec publishes, except the Alpha design-import
 endpoints, which are deliberately excluded while their contract can still change.
 
 ## Installation
@@ -32,6 +32,9 @@ Set the environment variable `ABYSSALE_API_KEY` to your Abyssale API key.
 - `listDesigns(query?)` — List the designs in the workspace; search (`query`, `name`, `project`, `project_id`), filter by `type`, `orientation`, `size`, `format`, `updated_since`, `created_since` (`type`, `size`, `format` take a list), `sort`/`order`, and page with `page`/`per_page`
 - `getDesign(designId, options?)` — Full design spec: formats, elements, variables; `{ advanced: true }` also returns `group` layers
 - `getDesignFormat(designId, formatSpecifier)` — Get details for a specific format within a design
+- `renameDesign(designId, { name })` — Rename a design (1 to 100 characters after trimming); answers `{ id, name }`
+- `moveDesign(designId, { project_id })` — Move a design to another project of the workspace; resets its approval status
+- `deleteDesign(designId)` — Delete a design; no restore, files already generated from it are kept
 - `generateImage(designId, body)` — Synchronously generate a single image; returns the file URL immediately
 - `generateMultiFormatMedia(designId, body)` — Asynchronously generate multiple formats (image, GIF, video, HTML5, PDF) in one call
 - `generateMultiPagePdf(designId, body)` — Asynchronously generate a multi-page print-ready PDF from a printer_multipage design
