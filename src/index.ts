@@ -11,6 +11,8 @@ export type Design = components["schemas"]["Design"];
 export type DesignFormat = components["schemas"]["DesignFormat"];
 export type DesignElement = components["schemas"]["DesignElement"];
 export type DesignAnimation = components["schemas"]["DesignAnimation"];
+/** The design a `renameDesign`, `moveDesign` or `deleteDesign` acted on. */
+export type DesignNameResult = components["schemas"]["DesignNameResult"];
 export type ErrorResponse = components["schemas"]["ErrorResponse"];
 export type WorkspaceTemplate = components["schemas"]["WorkspaceTemplate"];
 export type WorkspaceTemplateCategory =
@@ -49,6 +51,10 @@ type CreateDynamicImageUrlBody = NonNullable<
 >["content"]["application/json"];
 type CreateProjectBody =
   operations["createProject"]["requestBody"]["content"]["application/json"];
+type RenameDesignBody =
+  operations["renameDesign"]["requestBody"]["content"]["application/json"];
+type MoveDesignBody =
+  operations["moveDesign"]["requestBody"]["content"]["application/json"];
 type DuplicateWorkspaceTemplateBody =
   operations["duplicateWorkspaceTemplate"]["requestBody"]["content"]["application/json"];
 type ListDesignsSpecQuery = NonNullable<
@@ -274,6 +280,43 @@ const abyssale = {
   getDesignFormat: (designId: string, formatSpecifier: string) =>
     _client.GET("/designs/{designId}/formats/{formatSpecifier}", {
       params: { path: { designId, formatSpecifier } },
+    }),
+
+  /**
+   * Rename a design. The name is trimmed, then must be 1 to 100 characters; names need not be
+   * unique. Any design `listDesigns` lists can be renamed; anything else answers
+   * `404 template_not_found`.
+   * @example
+   * const { data } = await abyssale.renameDesign(designId, { name: 'Summer sale' });
+   */
+  renameDesign: (designId: string, body: RenameDesignBody) =>
+    _client.PUT("/designs/{designId}/name", {
+      params: { path: { designId } },
+      body,
+    }),
+
+  /**
+   * Move a design to another project of the workspace (ids from `listProjects`).
+   * Moving a design resets its approval status. A destination that is not a project of your
+   * workspace answers `400 project_not_found`.
+   * @example
+   * const { data } = await abyssale.moveDesign(designId, { project_id: projectId });
+   */
+  moveDesign: (designId: string, body: MoveDesignBody) =>
+    _client.PUT("/designs/{designId}/project", {
+      params: { path: { designId } },
+      body,
+    }),
+
+  /**
+   * Delete a design. **There is no restore.** Files already generated from it are kept.
+   * Any design `listDesigns` lists can be deleted; anything else answers `404 template_not_found`.
+   * @example
+   * const { data, error } = await abyssale.deleteDesign(designId);
+   */
+  deleteDesign: (designId: string) =>
+    _client.DELETE("/designs/{designId}", {
+      params: { path: { designId } },
     }),
 
   // ── Asset Generation ──────────────────────────────────────────────────────

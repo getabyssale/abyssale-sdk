@@ -59,6 +59,7 @@ API version it was generated against.
 
 | SDK version | API version   |
 | ----------- | ------------- |
+| 1.9.0       | `v2026-10-21` |
 | 1.8.0       | `v2026-10-19` |
 | 1.7.0       | `v2026-10-07` |
 | 1.6.0       | `v2026-10-01` |
@@ -69,7 +70,7 @@ API version it was generated against.
 | 1.3.0       | `v2026-08-21` |
 | 1.2.0       | `v2026-08-20` |
 
-**1.8.0 is at full parity with `v2026-10-19`**: every operation the spec publishes has a method on
+**1.9.0 is at full parity with `v2026-10-21`**: every operation the spec publishes has a method on
 the client. The one deliberate exception is the design-import surface (`/designs/import/json`,
 `/designs/import/json/{importId}`, `/designs/{designId}/as-import`), which is in Alpha and whose
 contract may change without notice — [`scripts/fetch-spec.mjs`](./scripts/fetch-spec.mjs) strips it

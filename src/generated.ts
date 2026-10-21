@@ -147,6 +147,73 @@ export interface paths {
         get: operations["getDesign"];
         put?: never;
         post?: never;
+        /**
+         * Delete a design
+         * @description Delete one design from your workspace. Once deleted, it no longer appears in
+         *     `GET /designs`, and every endpoint that takes its id — reads, generation, rename, move —
+         *     answers `404 template_not_found`. Files already generated from it are not affected.
+         *
+         *     **There is no restore**, through the API or in the app.
+         *
+         *     Any design that `GET /designs` lists can be deleted. Anything else answers `404
+         *     template_not_found`, the same as an id that never existed: a design that is already
+         *     deleted, one in a deleted project, a workspace template, or another workspace's design.
+         */
+        delete: operations["deleteDesign"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/designs/{designId}/name": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Rename a design
+         * @description Change the name of one design. The name is trimmed, then must be 1 to 100 characters.
+         *     Sending the name the design already has succeeds and changes nothing.
+         *
+         *     Design names need not be unique: two designs, in the same project or not, can share one.
+         *
+         *     Any design that `GET /designs` lists can be renamed. Anything else answers `404
+         *     template_not_found` (see `DELETE /designs/{designId}`).
+         */
+        put: operations["renameDesign"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/designs/{designId}/project": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Move a design to another project
+         * @description Move one design to another project of your workspace. List the projects, and their ids,
+         *     with `GET /projects`.
+         *
+         *     **Moving a design resets its approval status**, since that approval was given within the
+         *     project it leaves. Moving a design to the project it is already in changes nothing,
+         *     approval status included.
+         *
+         *     Any design that `GET /designs` lists can be moved. Anything else answers `404
+         *     template_not_found` (see `DELETE /designs/{designId}`). A destination that is not a
+         *     project of your workspace, or a deleted one, answers `400 project_not_found`.
+         */
+        put: operations["moveDesign"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -852,7 +919,7 @@ export interface components {
          *
          *     The value changes when a new version is released. Match the `vYYYY-MM-DD` shape rather than
          *     pinning today's literal, or your client breaks on the next release.
-         * @example v2026-10-19
+         * @example v2026-10-21
          */
         ApiVersion: string;
         /**
@@ -1785,6 +1852,10 @@ export interface components {
             image_url?: components["schemas"]["imageUrl"];
             image_encoded?: components["schemas"]["imageEncoded"];
             opacity?: components["schemas"]["opacity"];
+            /** @description **Width of the image frame** *Example: 4*. The frame is drawn **outside** the image box and follows the mask shape (`mask_name`) when there is one. Transparent pixels inside the image are never painted: on a cut-out, the frame surrounds the box, not the subject. */
+            stroke_width?: components["schemas"]["shapeStrokeWidth"];
+            /** @description **Color of the image frame.** Hex (`#RRGGBB`, `#RRGGBBAA`, `#RGB` or `#RGBA`) or, for print, `cmyk(...)` / `cmyka(...)`; no gradient. Invisible without a `stroke_width`. */
+            stroke_color?: components["schemas"]["strokeColor"];
             fitting_type?: components["schemas"]["fittingType"];
             alignment?: components["schemas"]["alignment"];
             mask_name?: components["schemas"]["maskName"];
@@ -1879,6 +1950,10 @@ export interface components {
             image_url?: components["schemas"]["imageUrl"];
             image_encoded?: components["schemas"]["imageEncoded"];
             opacity?: components["schemas"]["opacity"];
+            /** @description **Width of the image frame** *Example: 4*. The frame is drawn **outside** the image box and follows the mask shape (`mask_name`) when there is one. Transparent pixels inside the image are never painted: on a cut-out, the frame surrounds the box, not the subject. */
+            stroke_width?: components["schemas"]["shapeStrokeWidth"];
+            /** @description **Color of the image frame.** Hex (`#RRGGBB`, `#RRGGBBAA`, `#RGB` or `#RGBA`) or, for print, `cmyk(...)` / `cmyka(...)`; no gradient. Invisible without a `stroke_width`. */
+            stroke_color?: components["schemas"]["strokeColor"];
             fitting_type?: components["schemas"]["fittingType"];
             alignment?: components["schemas"]["alignment"];
             mask_name?: components["schemas"]["maskName"];
@@ -2248,6 +2323,21 @@ export interface components {
              */
             category_name?: string | null;
         };
+        /** @description The design a rename, move or delete acted on. */
+        DesignNameResult: {
+            /**
+             * Format: uuid
+             * @description The design's id.
+             * @example 64238d01-d402-474b-8c2d-fbc957e9d290
+             */
+            id: string;
+            /**
+             * @description The design's name.
+             * @example Summer sale
+             */
+            name: string;
+            version?: components["schemas"]["ApiVersion"];
+        };
         DuplicatedDesign: {
             /**
              * Format: uuid
@@ -2454,9 +2544,15 @@ export interface components {
          * @description **The text alignment.** *Example: left*
          *
          *     __If given, the text position will be computed from the text bounding box defined within the design.__
+         *
+         *     The horizontal half may be justified: `justify-left`, `justify-center` and `justify-right`
+         *     stretch every line to the box except the last line of each paragraph, which is aligned as
+         *     named (CSS `text-align: justify` with `text-align-last`). `justify` is the CSS and Figma
+         *     spelling, an alias of `justify-left`. Text layers only: a button's label takes
+         *     `left`, `center` or `right`.
          * @enum {string}
          */
-        textAlignment: "top" | "middle" | "bottom" | "left" | "center" | "right" | "top left" | "top center" | "top right" | "middle left" | "middle center" | "middle right" | "bottom left" | "bottom right" | "bottom center" | "top custom" | "middle custom" | "bottom custom" | "custom left" | "custom center" | "custom right" | "custom custom";
+        textAlignment: "top" | "middle" | "bottom" | "left" | "center" | "right" | "justify" | "justify-left" | "justify-center" | "justify-right" | "top left" | "top center" | "top right" | "middle left" | "middle center" | "middle right" | "bottom left" | "bottom right" | "bottom center" | "top justify" | "top justify-left" | "top justify-center" | "top justify-right" | "middle justify" | "middle justify-left" | "middle justify-center" | "middle justify-right" | "bottom justify" | "bottom justify-left" | "bottom justify-center" | "bottom justify-right" | "top custom" | "middle custom" | "bottom custom" | "custom left" | "custom center" | "custom right" | "custom custom";
         /**
          * @description **Text transformation style.** Force the text to be transformed to one of the following options: - `uppercase`: All letters become uppercase (e.g., `EXAMPLE`) - `lowercase`: All letters become lowercase (e.g., `example`) - `titlecase`: The first letter of each word is capitalized (e.g., `Example Text`) - `capitalize`: Only the first letter of the entire text is capitalized (e.g., `Example text`) - `none`: No transformation — send it to clear one set on the design
          * @enum {string}
@@ -2464,7 +2560,7 @@ export interface components {
         textTransform: "none" | "uppercase" | "lowercase" | "titlecase" | "capitalize";
         /** @description **Width of the stroke** *Example: 10*. Text and button top out at 40; a shape layer accepts up to 60 (see `shapeStrokeWidth`). The design **import** allows up to 1000, so a design can hold a stroke this endpoint cannot reproduce — the import bound is the design's, this one is the override's. */
         strokeWidth: number;
-        /** @description **Width of the shape's stroke** *Example: 10*. The design **import** allows up to 1000 — see `strokeWidth`. */
+        /** @description **Width of a shape's stroke or an image's frame** *Example: 10*. The design **import** allows up to 1000 — see `strokeWidth`. */
         shapeStrokeWidth: number;
         /**
          * @description **Stroke color.** Hex (`#RRGGBB`, `#RRGGBBAA`, `#RGB` or `#RGBA`) or, for print, `cmyk(...)` / `cmyka(...)`; no gradient. *Example: #FF0000*
@@ -2730,6 +2826,25 @@ export interface components {
                 [name: string]: unknown;
             };
             content: {
+                "application/json": components["schemas"]["ErrorResponse"];
+            };
+        };
+        /**
+         * @description No design that `GET /designs` lists has this id (`template_not_found`): it never existed,
+         *     is already deleted, is in a deleted project, is a workspace template, or belongs to another
+         *     workspace.
+         */
+        DesignWriteNotFound: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "id": "template_not_found",
+                 *       "message": "Template UUID '64238d01-d402-474b-8c2d-fbc957e9d290' not found"
+                 *     }
+                 */
                 "application/json": components["schemas"]["ErrorResponse"];
             };
         };
@@ -3085,6 +3200,154 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    deleteDesign: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description Unique identifier (UUID) of the design. A value that is not a UUID does not match the
+                 *     route and answers `404` with `id: endpoint_not_found`.
+                 */
+                designId: components["parameters"]["DesignId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The design was deleted. The body names it. */
+            200: {
+                headers: {
+                    "X-RateLimit-Limit": components["headers"]["XRateLimitLimit"];
+                    "X-RateLimit-Remaining": components["headers"]["XRateLimitRemaining"];
+                    "X-RateLimit-Reset": components["headers"]["XRateLimitReset"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DesignNameResult"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["DesignWriteNotFound"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    renameDesign: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description Unique identifier (UUID) of the design. A value that is not a UUID does not match the
+                 *     route and answers `404` with `id: endpoint_not_found`.
+                 */
+                designId: components["parameters"]["DesignId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /**
+                     * @description The new name. Leading and trailing spaces are removed before the length is
+                     *     checked, so a name of spaces only is refused.
+                     * @example Summer sale
+                     */
+                    name: string;
+                };
+            };
+        };
+        responses: {
+            /** @description The design was renamed. `name` is the name as stored, trimmed. */
+            200: {
+                headers: {
+                    "X-RateLimit-Limit": components["headers"]["XRateLimitLimit"];
+                    "X-RateLimit-Remaining": components["headers"]["XRateLimitRemaining"];
+                    "X-RateLimit-Reset": components["headers"]["XRateLimitReset"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DesignNameResult"];
+                };
+            };
+            /** @description `name` is missing (`missing_required`), or not 1 to 100 characters once trimmed (`out_of_range`). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["DesignWriteNotFound"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    moveDesign: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description Unique identifier (UUID) of the design. A value that is not a UUID does not match the
+                 *     route and answers `404` with `id: endpoint_not_found`.
+                 */
+                designId: components["parameters"]["DesignId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /**
+                     * Format: uuid
+                     * @description The id of the destination project, from `GET /projects`.
+                     * @example 9d00e9fe-9bd5-4471-acad-baa702a867e9
+                     */
+                    project_id: string;
+                };
+            };
+        };
+        responses: {
+            /** @description The design is now in the destination project. */
+            200: {
+                headers: {
+                    "X-RateLimit-Limit": components["headers"]["XRateLimitLimit"];
+                    "X-RateLimit-Remaining": components["headers"]["XRateLimitRemaining"];
+                    "X-RateLimit-Reset": components["headers"]["XRateLimitReset"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DesignNameResult"] & {
+                        /**
+                         * Format: uuid
+                         * @description The project the design is now in.
+                         */
+                        project_id: string;
+                    };
+                };
+            };
+            /**
+             * @description `project_id` is missing (`missing_required`) or not a UUID (`invalid_payload`), or the
+             *     project does not exist in your workspace or is deleted (`project_not_found`).
+             */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["DesignWriteNotFound"];
             429: components["responses"]["TooManyRequests"];
             500: components["responses"]["InternalServerError"];
         };
