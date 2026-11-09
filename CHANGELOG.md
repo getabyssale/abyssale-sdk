@@ -2,6 +2,22 @@
 
 All notable changes to `@abyssale/sdk` are documented here.
 
+## [1.10.0] — 2026-11-09
+
+Types regenerated against API version `v2026-11-09`, which also brings `v2026-10-29`. Minor, not
+patch: the text-to-image `model` union gained values. Nothing was removed or narrowed, so there is
+no upgrade step beyond installing it.
+
+### Added
+
+- **`flux-3`** and **`fibo-2`** join the `text_to_image_properties.model` union (`v2026-10-29`).
+  `flux-3` accepts up to 10 `inpaint_images`, `fibo-2` up to 4.
+- **Shadows on print designs** (`v2026-11-09`): on `printer` / `printer_multipage` designs,
+  `shadow_blur`, `shadow_offset_x` and `shadow_offset_y` are in the design's unit (mm or in), the
+  alpha of `shadow_color` is the shadow's opacity, and image, shape and logo shadows are printed
+  multiplied with what lies underneath. The element body is an open map, so no type changed; only
+  the property documentation did.
+
 ## [1.9.0] — 2026-10-21
 
 Types regenerated against API version `v2026-10-21`, which also brings `v2026-10-20`. Minor, not
