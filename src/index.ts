@@ -34,6 +34,21 @@ export type AsyncElements = components["schemas"]["AsyncElements"];
 /** `text_to_image_properties` on an image element — `generateMultiFormatMedia` only. */
 export type TextToImageProperties = components["schemas"]["TextToImageProperties"];
 export type Pages = components["schemas"]["Pages"];
+/** An AI asset job — what `getAssetJob` and `waitForAssetJob` return, and the `ASSET_JOB_FINALIZED` payload. */
+export type AssetJob = components["schemas"]["AssetJob"];
+/** The receipt `removeBackground`, `textToImage` and `upscale` answer: poll its `job_id`. */
+export type AssetJobQueued = components["schemas"]["AssetJobQueued"];
+/** One output of an asset job. Its `url` is signed and valid 7 days — download the file to keep it. */
+export type AssetJobOutput = components["schemas"]["AssetJobOutput"];
+export type AssetJobCredits = components["schemas"]["AssetJobCredits"];
+/** The models available for one AI action — `listAiModels(operation)`. */
+export type AiModelListing = components["schemas"]["AiModelListing"];
+/** A parameter a model accepts (`aspect_ratios`, `qualities`, `upscale_factors`), with its default. */
+export type AiModelParam = components["schemas"]["AiModelParam"];
+/** An AI action, as `listAiModels` names it: `images_remove_background`, `images_text_to_image`, `images_upscale`. */
+export type AiModelOperation = NonNullable<
+  NonNullable<operations["listAiModels"]["parameters"]["query"]>["operation"]
+>;
 
 // ── Body type helpers (extracted from operations for cleaner method signatures) ─
 type GenerateImageBody =
@@ -55,6 +70,12 @@ type RenameDesignBody =
   operations["renameDesign"]["requestBody"]["content"]["application/json"];
 type MoveDesignBody =
   operations["moveDesign"]["requestBody"]["content"]["application/json"];
+export type RemoveBackgroundBody =
+  operations["removeBackground"]["requestBody"]["content"]["application/json"];
+export type TextToImageBody =
+  operations["textToImage"]["requestBody"]["content"]["application/json"];
+export type UpscaleBody =
+  operations["upscale"]["requestBody"]["content"]["application/json"];
 type DuplicateWorkspaceTemplateBody =
   operations["duplicateWorkspaceTemplate"]["requestBody"]["content"]["application/json"];
 type ListDesignsSpecQuery = NonNullable<
@@ -479,6 +500,82 @@ const abyssale = {
       body,
     }),
 
+  // ── AI asset jobs ─────────────────────────────────────────────────────────
+  // Each action starts a job and answers `202 { job_id, status: 'PENDING' }` in milliseconds; the
+  // work runs in the background. Wait for it with `waitForAssetJob`, or pass a `callback_url` to
+  // receive the `ASSET_JOB_FINALIZED` webhook once it ends. Errors worth branching on:
+  // `402 insufficient_credits`, `429 too_many_asset_jobs` (at most 5 jobs pending or processing
+  // per workspace — wait for one to finish), `400 unknown_enum_value` / `ai_model_disabled`, and
+  // `503 ai_service_unavailable` / `asset_jobs_disabled` (nothing was queued or charged).
+
+  /**
+   * Remove an image's background, with an AI model. Spends AI credits.
+   * `model` is optional (the workspace default otherwise) — see `listAiModels('images_remove_background')`.
+   * @example
+   * const { data } = await abyssale.removeBackground({
+   *   image_url: 'https://example.com/product.jpg',
+   *   crop: true,
+   * });
+   * const job = await abyssale.waitForAssetJob(data!.job_id);
+   * console.log(job.outputs[0]?.url);
+   */
+  removeBackground: (body: RemoveBackgroundBody) =>
+    _client.POST("/images/remove-background", { body }),
+
+  /**
+   * Generate an image from a prompt, with an AI model. Spends AI credits.
+   * `aspect_ratio` and `quality` must be values the model lists in `listAiModels('images_text_to_image')`;
+   * `reference_image_urls` guide the generation, for models that take them (`max_reference_images`).
+   * @example
+   * const { data } = await abyssale.textToImage({
+   *   prompt: 'A red fox sitting in fresh snow at sunrise, soft light',
+   *   aspect_ratio: '16:9',
+   * });
+   * const job = await abyssale.waitForAssetJob(data!.job_id);
+   */
+  textToImage: (body: TextToImageBody) =>
+    _client.POST("/images/text-to-image", { body }),
+
+  /**
+   * Upscale an image, with an AI model. Spends AI credits, priced on the output size — a balance
+   * short of the real price fails the job `insufficient_credits` after it was accepted.
+   * `upscale_factor` is one of the model's `upscale_factors` in `listAiModels('images_upscale')`.
+   * @example
+   * const { data } = await abyssale.upscale({
+   *   image_url: 'https://example.com/product.jpg',
+   *   upscale_factor: 2,
+   * });
+   */
+  upscale: (body: UpscaleBody) =>
+    _client.POST("/images/upscale", { body }),
+
+  /**
+   * Read an asset job: `PENDING` → `PROCESSING` → `COMPLETED` or `FAILED`.
+   * `outputs` is empty until `COMPLETED`; each output's `url` is signed and valid 7 days, so
+   * download the file to keep it. `error` says why a `FAILED` job failed. Prefer `waitForAssetJob`.
+   * A job finished more than 7 days ago answers `404 asset_job_not_found`.
+   * @example
+   * const { data } = await abyssale.getAssetJob(jobId);
+   * if (data?.status === 'COMPLETED') console.log(data.outputs[0]?.url);
+   */
+  getAssetJob: (jobId: string) =>
+    _client.GET("/asset-jobs/{jobId}", { params: { path: { jobId } } }),
+
+  /**
+   * List the AI models the workspace can use, and the default used when a request names none.
+   * Without `operation`, every action is listed (`{ operations: [...] }`); with one, that action
+   * alone (`{ operation, default_model, models }`). No prices — what a job cost is on the job.
+   * @example
+   * const { data } = await abyssale.listAiModels('images_text_to_image');
+   * if (data && !('operations' in data)) {
+   *   for (const m of data.models) console.log(m.id, m.aspect_ratios?.allowed);
+   * }
+   */
+  listAiModels: (operation?: AiModelOperation) =>
+    _client.GET("/ai-models", {
+      params: { query: operation ? { operation } : undefined },
+    }),
+
   // ── Workspace Templates ───────────────────────────────────────────────────
 
   /**
@@ -759,8 +856,37 @@ function waitForDuplicationRequest(
   );
 }
 
+/**
+ * Wait for an AI asset job to end. Polls `getAssetJob` with exponential backoff until the job is
+ * `COMPLETED` (returned) or `FAILED` (thrown).
+ *
+ * A `FAILED` job throws an `AbyssalePollingError` naming the job's `error.code` and message. `.id`
+ * and `.response` stay reserved for an actual API error body, which this is not — the poll itself
+ * answered 200; the failed job is reachable as `err.cause.cause`.
+ * @example
+ * const { data } = await abyssale.removeBackground({ image_url: 'https://example.com/product.jpg' });
+ * const job = await abyssale.waitForAssetJob(data!.job_id);
+ * console.log(job.outputs[0]?.url, job.credits.ai_credits, 'AI credits');
+ */
+function waitForAssetJob(jobId: string, options?: PollOptions): Promise<AssetJob> {
+  return pollUntil(
+    () => abyssale.getAssetJob(jobId),
+    (data) => data.status === "COMPLETED" || data.status === "FAILED",
+    resolveOpts(options)
+  ).then((job) => {
+    if (job.status !== "FAILED") return job;
+    const reason = job.error
+      ? `${job.error.code}: ${job.error.message}`
+      : "no reason given";
+    throw new AbyssalePollingError(
+      new Error(`the asset job failed — ${reason}`, { cause: job })
+    );
+  });
+}
+
 export default Object.assign(abyssale, {
   waitForGenerationRequest,
   waitForDuplicationRequest,
+  waitForAssetJob,
   totalCount,
 });

@@ -9,7 +9,7 @@ Types are auto-generated from the public OpenAPI spec at `https://developers.aby
 ```
 src/generated.ts       ← auto-generated types (openapi-typescript) — never edit manually
 src/middleware.ts      ← retry (5xx, a 429 with Retry-After, one probe for a bare 429) + timeout middleware
-src/index.ts           ← singleton export: 25 named methods + 2 polling helpers + `totalCount` + public type re-exports
+src/index.ts           ← singleton export: 30 named methods + 3 polling helpers + `totalCount` + public type re-exports
 dist/                  ← compiled output — built by tsup, gitignored, produced at publish time
 scripts/fetch-spec.mjs ← fetches the spec and strips the Alpha design-import surface
 ```
@@ -83,4 +83,4 @@ The tarball contains only `dist/` and `README.md` (controlled by `"files"` in pa
 ## Tests
 
 Tests live in `src/__tests__/`. Run with `npm test`.
-Covers middleware (retry + timeout) and polling helpers (`waitForGenerationRequest`). Use vitest + `vi.spyOn(globalThis, 'fetch')` to mock HTTP.
+Covers middleware (retry + timeout) and polling helpers (`waitForGenerationRequest`, `waitForAssetJob`). Use vitest + `vi.spyOn(globalThis, 'fetch')` to mock HTTP.

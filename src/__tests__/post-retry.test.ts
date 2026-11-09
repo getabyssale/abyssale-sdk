@@ -82,3 +82,22 @@ describe("a throttled POST", () => {
     expect(error).toMatchObject({ id: "request_rate_limited" });
   });
 });
+
+describe("an AI asset-job POST", () => {
+  it("is not re-sent on a 5xx, even with retries enabled — it spends credits", async () => {
+    fetchMock.mockImplementation(
+      async () =>
+        new Response(JSON.stringify({ id: "ai_service_unavailable", message: "Unavailable" }), {
+          status: 503,
+          headers: { "content-type": "application/json" },
+        }),
+    );
+
+    const promise = abyssale.removeBackground({ image_url: "https://example.com/product.jpg" });
+    await vi.runAllTimersAsync();
+    const { error } = await promise;
+
+    expect(error).toMatchObject({ id: "ai_service_unavailable" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
