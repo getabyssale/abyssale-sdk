@@ -1156,7 +1156,7 @@ export interface components {
          *
          *     The value changes when a new version is released. Match the `vYYYY-MM-DD` shape rather than
          *     pinning today's literal, or your client breaks on the next release.
-         * @example v2026-11-09
+         * @example v2026-11-10
          */
         ApiVersion: string;
         /**
@@ -4030,6 +4030,11 @@ export interface operations {
                      * @example 80
                      */
                     file_compression_level?: number;
+                    /**
+                     * @description File name of the generated visual, without extension — returned as file.filename. Replaces the file naming set in the design settings and accepts the same properties: {format_name}, {format_width}, {format_height}, {template_name}, {template_id}, {file_id}, {creation_timestamp} and {layer_name.property} (e.g. {title.payload}). 1–255 characters. Punctuation other than - and _, control characters and characters outside Latin-1 are removed, and a name longer than 255 characters once its properties are replaced is cut at 255; if nothing is left, the design's naming applies. The name is a label, not a key: it never changes the file's url, and several visuals may share it. An export stores each visual under it and adds -1, -2… to repeated names.
+                     * @example spring-campaign-{format_name}
+                     */
+                    file_name?: string;
                 };
             };
         };
@@ -4144,6 +4149,11 @@ export interface operations {
                     image_file_type?: "png" | "jpeg" | "webp" | "avif" | "gif" | "pdf" | "html5" | "mp4" | "auto";
                     /** @description Output quality, 1-100 — 100 is the best quality (least compression), 1 the smallest file. Despite the name, higher = better. */
                     file_compression_level?: number;
+                    /**
+                     * @description File name of the generated visual, without extension — returned as file.filename. Replaces the file naming set in the design settings and accepts the same properties: {format_name}, {format_width}, {format_height}, {template_name}, {template_id}, {file_id}, {creation_timestamp} and {layer_name.property} (e.g. {title.payload}). 1–255 characters. Punctuation other than - and _, control characters and characters outside Latin-1 are removed, and a name longer than 255 characters once its properties are replaced is cut at 255; if nothing is left, the design's naming applies. With several formats, include {format_name} so the files do not share a name. The name is a label, not a key: it never changes the file's url, and several visuals may share it. An export stores each visual under it and adds -1, -2… to repeated names.
+                     * @example spring-campaign-{format_name}
+                     */
+                    file_name?: string;
                     /** @description HTML5 output options (animated designs only) */
                     html5?: {
                         /** @default Abyssale page title example */
@@ -4998,6 +5008,11 @@ export interface operations {
                      *     `POST /async/banner-builder/{designId}/generate` for versioned regeneration.
                      */
                     original_visual_id?: string;
+                    /**
+                     * @description File name of the generated PDF, without extension — returned as file.filename. Applies to the whole document. Replaces the file naming set in the design settings and accepts the same properties: {template_name}, {template_id}, {file_id}, {creation_timestamp}, {layer_name.property} (e.g. {title.payload}), and {format_name}, {format_width}, {format_height}, which take the values of the first page. 1–255 characters. Punctuation other than - and _, control characters and characters outside Latin-1 are removed, and a name longer than 255 characters once its properties are replaced is cut at 255; if nothing is left, the design's naming applies. The name is a label, not a key: it never changes the file's url, and several visuals may share it. An export stores each visual under it and adds -1, -2… to repeated names.
+                     * @example brochure-{template_name}
+                     */
+                    file_name?: string;
                 };
             };
         };
