@@ -2,6 +2,33 @@
 
 All notable changes to `@abyssale/sdk` are documented here.
 
+## [1.11.0] — 2026-11-09
+
+Types regenerated against API version `v2026-11-09`, which gained the AI asset-job endpoints
+without a version bump. Minor, not patch: five methods and a polling helper were added. Nothing was
+removed or narrowed, so there is no upgrade step beyond installing it.
+
+### Added
+
+- **AI asset jobs.** `removeBackground(body)`, `textToImage(body)` and `upscale(body)`
+  (`POST /images/remove-background`, `/images/text-to-image`, `/images/upscale`) start a job and
+  answer `{ job_id, status: 'PENDING' }` at once. Each spends AI credits; a workspace runs at most
+  5 jobs at a time (`429 too_many_asset_jobs`).
+- **`getAssetJob(jobId)`** (`GET /asset-jobs/{jobId}`) reads a job: `PENDING` → `PROCESSING` →
+  `COMPLETED` with `outputs[]` (signed URLs, valid 7 days) or `FAILED` with `error.code`.
+- **`waitForAssetJob(jobId, options?)`** polls a job until it ends: it returns a `COMPLETED` job
+  and throws `AbyssalePollingError` on a `FAILED` one, naming `error.code` (the job is on
+  `err.cause.cause`).
+- **`listAiModels(operation?)`** (`GET /ai-models`) lists the models the workspace can use per
+  action, with the default and each model's `aspect_ratios`, `qualities`, `upscale_factors` and
+  `max_reference_images`. Without `operation` it answers `{ operations: [...] }`.
+- Types `AssetJob`, `AssetJobQueued`, `AssetJobOutput`, `AssetJobCredits`, `AiModelListing`,
+  `AiModelParam`, `AiModelOperation`, and the bodies `RemoveBackgroundBody`, `TextToImageBody`,
+  `UpscaleBody`.
+- The `ASSET_JOB_FINALIZED` webhook, sent to an action's `callback_url`, verifies with
+  `verifyWebhookSignature` like every other delivery — no change there.
+- Example `examples/asset-jobs.ts`.
+
 ## [1.10.0] — 2026-11-09
 
 Types regenerated against API version `v2026-11-09`, which also brings `v2026-10-29`. Minor, not

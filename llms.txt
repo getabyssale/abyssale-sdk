@@ -11,10 +11,10 @@ images, colors, and other properties dynamically.
 ## What is this SDK?
 
 `@abyssale/sdk` is the official Node.js / TypeScript SDK for the Abyssale REST API.
-It provides a zero-config singleton with 27 typed methods covering the full API surface,
+It provides a zero-config singleton with 33 typed methods covering the full API surface,
 plus built-in polling helpers with exponential backoff. Configuration is done via the
 `ABYSSALE_API_KEY` environment variable. The SDK ships as dual ESM/CJS with full
-TypeScript types generated from the OpenAPI spec. Version 1.10.0 tracks API version
+TypeScript types generated from the OpenAPI spec. Version 1.11.0 tracks API version
 `v2026-11-09` and covers every operation that spec publishes, except the Alpha design-import
 endpoints, which are deliberately excluded while their contract can still change.
 
@@ -41,6 +41,12 @@ Set the environment variable `ABYSSALE_API_KEY` to your Abyssale API key.
 - `getGenerationRequest(generationRequestId)` — Poll the status of an async generation request once
 - `waitForGenerationRequest(generationRequestId, options?)` — Poll with exponential backoff until complete; throws on timeout, and when the request finalized with no banners at all (partial success resolves — check `result.errors`)
 - `waitForDuplicationRequest(duplicateRequestId, options?)` — Poll template duplication until COMPLETED or ERROR
+- `removeBackground(body)` — Start an AI job removing an image's background (`image_url`, optional `model`, `crop`, `callback_url`); answers `{ job_id, status: 'PENDING' }`. Spends AI credits
+- `textToImage(body)` — Start an AI job generating an image from a `prompt` (optional `model`, `aspect_ratio`, `quality`, `reference_image_urls`, `callback_url`); answers `{ job_id }`. Spends AI credits
+- `upscale(body)` — Start an AI job upscaling an image (`image_url`, optional `model`, `upscale_factor`, `callback_url`); answers `{ job_id }`. Spends AI credits, priced on the output size
+- `getAssetJob(jobId)` — Read an asset job once: `PENDING` → `PROCESSING` → `COMPLETED` (with `outputs[]`, each `{ type, url, mime_type }`, URLs signed and valid 7 days) or `FAILED` (with `error: { code, message }`); `credits` says what it spent
+- `waitForAssetJob(jobId, options?)` — Poll an asset job until it ends; returns it when `COMPLETED`, throws `AbyssalePollingError` naming `error.code` when `FAILED` (the job is on `err.cause.cause`)
+- `listAiModels(operation?)` — The AI models the workspace can use, and the default; with `operation` (`images_remove_background`, `images_text_to_image`, `images_upscale`) one listing, without it `{ operations: [...] }`. Per model: `aspect_ratios`, `qualities`, `upscale_factors`, `max_reference_images`. No prices
 - `totalCount(response)` — The number of matches across all pages, from the `X-Total-Count` header of `listDesigns`, `listFonts` and `listProjects`
 - `getFile(bannerId)` — Retrieve metadata and CDN download URL for a generated file
 - `listFonts(query?)` — List the fonts available in the workspace (Google Fonts + custom uploads); filter by `name`, `category`, `weight`, `style`, page with `page`/`per_page`
@@ -66,6 +72,7 @@ Set the environment variable `ABYSSALE_API_KEY` to your Abyssale API key.
 - **E-commerce product banners**: Dynamically swap product image, price, and promotional text into a branded template for each SKU, triggered automatically when inventory or pricing changes.
 - **Print-on-demand**: Generate personalised multi-page PDFs (brochures, catalogues, certificates) with different content per page, ready for commercial printing with crop marks and color profiles.
 - **HTML5 banner ads**: Produce animated HTML5 banners for ad networks (Google Ads, Adform, Amazon Ads, AdRoll) with click-tag and backup image, directly from your design templates.
+- **AI image editing**: Generate product visuals from a prompt, cut out their background and upscale them, then drop the result into a design's image element. An asset job's `callback_url` delivers the `ASSET_JOB_FINALIZED` webhook when it ends, so nothing has to poll.
 - **Website social cards**: Generate Open Graph and Twitter Card images on demand for any page, with the page title and thumbnail baked in.
 
 ## Key features
@@ -73,8 +80,8 @@ Set the environment variable `ABYSSALE_API_KEY` to your Abyssale API key.
 - TypeScript-first with types generated from the OpenAPI spec — full IntelliSense
 - Dual ESM and CJS output — works in any Node.js project
 - Zero-config singleton — no constructor, no setup beyond setting an env var
-- Auto-retry with exponential backoff, deliberately narrow: `5xx` only on idempotent reads (a POST is never repeated, since it would bill a second generation), and `429` on a graded rule: with `Retry-After` it is a real throttle and gets the full ladder; without one it gets exactly ONE retry after 1 s, because `rate_limit_exceeded` covers both a spent credit balance (permanent) and the gateway's global 10 req/s ceiling (clears in under a second) and only that probe tells them apart; a bare `429` whose id is `feature_not_in_plan` is not retried at all. Default 3 retries, 30 s timeout — configurable via `ABYSSALE_MAX_RETRIES` and `ABYSSALE_TIMEOUT_MS` (0 disables retries, including the probe)
-- Built-in polling helpers (`waitForGenerationRequest`, `waitForDuplicationRequest`) with exponential backoff, jitter, and configurable timeout (default 30 min, min 1 min); they throw `AbyssalePollingError`, which carries the API error code on `.id`. A long wait survives blips: up to 3 consecutive transient poll failures are absorbed, using the same rule as the retry middleware — a `5xx`, a network error, or a `429` carrying `Retry-After` (which the poll then waits for instead of its own interval). A bare `429` is probed once and then fatal, capped at one probe per wait rather than one in a row. A `404` fails immediately
+- Auto-retry with exponential backoff, deliberately narrow: `5xx` only on idempotent reads (a POST is never repeated, since it would bill a second generation), and `429` on a graded rule: with `Retry-After` it is a real throttle and gets the full ladder; without one it gets exactly ONE retry after 1 s, because `rate_limit_exceeded` covers both a spent credit balance (permanent) and the gateway's global 10 req/s ceiling (clears in under a second) and only that probe tells them apart; a bare `429` whose id is `feature_not_in_plan` is not retried at all. `too_many_asset_jobs` (at most 5 AI jobs pending or processing per workspace) is a bare `429` too, so it gets the one probe — wait for a job to finish. Default 3 retries, 30 s timeout — configurable via `ABYSSALE_MAX_RETRIES` and `ABYSSALE_TIMEOUT_MS` (0 disables retries, including the probe)
+- Built-in polling helpers (`waitForGenerationRequest`, `waitForDuplicationRequest`, `waitForAssetJob`) with exponential backoff, jitter, and configurable timeout (default 30 min, min 1 min); they throw `AbyssalePollingError`, which carries the API error code on `.id`. A long wait survives blips: up to 3 consecutive transient poll failures are absorbed, using the same rule as the retry middleware — a `5xx`, a network error, or a `429` carrying `Retry-After` (which the poll then waits for instead of its own interval). A bare `429` is probed once and then fatal, capped at one probe per wait rather than one in a row. A `404` fails immediately
 - Webhook signature verification (`@abyssale/sdk/webhooks`) as a separate entry point with no API-key requirement, so a receiver-only process holds no credential that can spend credits
 - Returns `{ data, error, response }` — never throws on HTTP errors
 

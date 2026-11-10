@@ -553,6 +553,239 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/images/remove-background": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Remove an image's background (asynchronous)
+         * @description Remove the background of one image, with an AI model. The work runs in the background:
+         *     this call answers **`202`** with a `job_id` in milliseconds, before anything is processed.
+         *     Follow the job by polling `GET /asset-jobs/{jobId}`, or pass a `callback_url` to receive
+         *     the [ASSET_JOB_FINALIZED](/webhooks/events/asset-job-events#asset-job-finalized) webhook when it ends.
+         *
+         *     **Spends AI credits**, not generation credits, and only once the job completes; the cost
+         *     is on the finished job (`credits.ai_credits`). Before anything is queued, the workspace's AI
+         *     credit balance is checked against the price of this call (`402 insufficient_credits`
+         *     otherwise). That check is not a reservation: a job can still end `FAILED` with
+         *     `insufficient_credits` if the balance runs out before it runs.
+         *
+         *     **Models.** Omit `model` to use the workspace's default for background removal (set in
+         *     the workspace settings, otherwise Abyssale's default). `GET /ai-models?operation=images_remove_background`
+         *     lists the models the workspace can use and which one is the default. A model disabled in
+         *     the workspace settings answers `400 ai_model_disabled`.
+         *
+         *     **At most a few jobs per workspace run at once** (pending or processing, every kind of
+         *     asset job together). Past that, a new one answers `429 too_many_asset_jobs`: wait for one
+         *     to finish, then retry. This endpoint has no per-minute budget of its own — that cap is
+         *     what bounds it.
+         *
+         *     **Never retried for you, and do not retry blindly.** Every `202` is a new job, charged on
+         *     its own. A `503` (`asset_jobs_disabled`, `ai_service_unavailable`) means no job was
+         *     created and nothing was charged.
+         */
+        post: operations["removeBackground"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/images/text-to-image": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Generate an image from a prompt (asynchronous)
+         * @description Generate **one image** from a text prompt, with an AI model, optionally guided by reference
+         *     images. The work runs in the background: this call answers **`202`** with a `job_id` in
+         *     milliseconds, before anything is generated. Follow the job by polling
+         *     `GET /asset-jobs/{jobId}`, or pass a `callback_url` to receive the
+         *     [ASSET_JOB_FINALIZED](/webhooks/events/asset-job-events#asset-job-finalized) webhook when it ends. One image per
+         *     job: the finished job has exactly one entry in `outputs`.
+         *
+         *     **Spends AI credits**, not generation credits, and only once the job completes; the cost
+         *     is on the finished job (`credits.ai_credits`). The price depends on the model and on what you ask
+         *     for (`aspect_ratio`, `quality`, reference images). Before anything is queued, the
+         *     workspace's AI credit balance is checked against the price of this exact call
+         *     (`402 insufficient_credits` otherwise). That check is not a reservation: a job can still
+         *     end `FAILED` with `insufficient_credits` if the balance runs out before it runs.
+         *
+         *     **Models.** Omit `model` to use the workspace's default for image generation (set in the
+         *     workspace settings, otherwise Abyssale's default). A model disabled in the workspace
+         *     settings answers `400 ai_model_disabled`.
+         *
+         *     **`aspect_ratio` and `quality` depend on the model.** Each model accepts its own values —
+         *     a ratio such as `16:9` for some, a size such as `landscape_16_9` or `1536x1024` for
+         *     others — and some models take no `quality` at all.
+         *     `GET /ai-models?operation=images_text_to_image` lists, per model, the accepted values and the
+         *     default. Omit either one to get the model's default. A value the model does not accept,
+         *     or a `quality` sent to a model that takes none, answers `400 unknown_enum_value` before
+         *     anything is queued or charged, with the accepted values in `errors[].expected` (an empty
+         *     list when the model takes no such parameter).
+         *
+         *     **Prompt.** At least 3 words and at most 4 000 characters.
+         *
+         *     **Reference images** (`reference_image_urls`) guide the generation — a product to stage, a
+         *     style to follow. They are downloaded when the job runs; one that cannot be read fails the
+         *     job with `invalid_input_asset`. The model must accept reference images: one that does not
+         *     answers `400 unknown_enum_value` on `model`, listing the models that do. Each model takes at
+         *     most its `max_reference_images` from `GET /ai-models` (3 to 16 depending on the model); more
+         *     answers `400 out_of_range` on `reference_image_urls`. Some models charge more per reference image; the pre-check prices them in.
+         *
+         *     **At most a few jobs per workspace run at once** (pending or processing, every kind of
+         *     asset job together). Past that, a new one answers `429 too_many_asset_jobs`: wait for one
+         *     to finish, then retry. This endpoint has no per-minute budget of its own — that cap is
+         *     what bounds it.
+         *
+         *     **Never retried for you, and do not retry blindly.** Every `202` is a new job, charged on
+         *     its own. A `503` (`asset_jobs_disabled`, `ai_service_unavailable`) means no job was
+         *     created and nothing was charged.
+         */
+        post: operations["textToImage"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/images/upscale": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Upscale an image (asynchronous)
+         * @description Upscale **one image** by a factor (its width and height are each multiplied by
+         *     `upscale_factor`), with an AI model. The work runs in the background: this call answers
+         *     **`202`** with a `job_id` in milliseconds, before anything is processed. Follow the job by
+         *     polling `GET /asset-jobs/{jobId}`, or pass a `callback_url` to receive the
+         *     [ASSET_JOB_FINALIZED](/webhooks/events/asset-job-events#asset-job-finalized) webhook when it ends. The finished job
+         *     has exactly one entry in `outputs`, a WebP image (`image/webp`).
+         *
+         *     **Spends AI credits**, not generation credits, and only once the job completes. **The price
+         *     depends on the output size** — width × height × `upscale_factor`², in megapixels, for most
+         *     models — so it is known only once the image has been read: it is on the finished job
+         *     (`credits.ai_credits`). Before anything is queued, only a non-empty AI credit balance is checked
+         *     (`402 insufficient_credits` otherwise); the exact price is checked when the job runs, and a
+         *     balance that does not cover it ends the job `FAILED` with `insufficient_credits`, without
+         *     charging anything.
+         *
+         *     **Image size.** The image must be at least 128 × 128 px; a larger one than 3 840 px on its
+         *     longest side is scaled down to it first. Each model caps the size of the result; an image
+         *     too small, or a result over the model's cap, ends the job `FAILED` with
+         *     `invalid_input_asset` and a message saying why — use a smaller factor or a smaller image.
+         *
+         *     **Models.** Omit `model` to use the workspace's default for upscale (set in the workspace
+         *     settings, otherwise Abyssale's default). A model disabled in the workspace settings answers
+         *     `400 ai_model_disabled`.
+         *
+         *     **`upscale_factor` depends on the model.** `GET /ai-models?operation=images_upscale` lists, per
+         *     model, the accepted factors and the default. Omit it to get the model's default. A factor
+         *     the model does not accept answers `400 unknown_enum_value` before anything is queued, with
+         *     the accepted values in `errors[].expected`.
+         *
+         *     **At most a few jobs per workspace run at once** (pending or processing, every kind of
+         *     asset job together). Past that, a new one answers `429 too_many_asset_jobs`: wait for one
+         *     to finish, then retry. This endpoint has no per-minute budget of its own — that cap is
+         *     what bounds it.
+         *
+         *     **Never retried for you, and do not retry blindly.** Every `202` is a new job, charged on
+         *     its own. A `503` (`asset_jobs_disabled`, `ai_service_unavailable`) means no job was
+         *     created and nothing was charged.
+         */
+        post: operations["upscale"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/asset-jobs/{jobId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Poll an asset job
+         * @description The status of an asset job started on this API (today: `POST /images/remove-background`,
+         *     `POST /images/text-to-image`, `POST /images/upscale`) and,
+         *     once it is `COMPLETED`, its `outputs` and what it cost.
+         *
+         *     **Always `200`** — branch on `status`, not on the HTTP status: `PENDING` (queued),
+         *     `PROCESSING`, then `COMPLETED` or `FAILED`, which are final. A failed job is still a `200`,
+         *     with `error` saying why. Poll every couple of seconds until the status is final; most jobs
+         *     finish within seconds, but none is bounded, so never rely on a fixed wait.
+         *
+         *     **Visible to the whole workspace**: any API key of the workspace can read a job started
+         *     with another one. A job of another workspace answers `404 asset_job_not_found`, exactly
+         *     like one that does not exist. Jobs started from Abyssale's AI assistant integrations are
+         *     not listed on this API.
+         *
+         *     **Kept 7 days**: a job can be polled for 7 days after it finished (`finalized_at`), then
+         *     answers `404 asset_job_not_found`. Each `outputs[].url` is a signed link valid 7 days from
+         *     the response that carried it: download the file to keep it.
+         */
+        get: operations["getAssetJob"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ai-models": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List AI models
+         * @description The AI models the workspace can use for each AI action, and the one used when the request
+         *     names none — so you can offer a choice, or pass `model` knowingly. Without `operation`,
+         *     every action is listed, each with its own `default_model` and models (`{"operations": [...]}`);
+         *     with `operation`, that action alone. Models disabled in the
+         *     workspace settings are left out; `default_model` is resolved exactly as the action
+         *     resolves it, and is `null` when every model is disabled.
+         *
+         *     For `images_text_to_image`, each model also lists the `aspect_ratios` and `qualities` it accepts,
+         *     with the default used when the request omits one. They differ from model to model (a
+         *     ratio such as `16:9` for some, a size such as `landscape_16_9` or `1536x1024` for others),
+         *     and a model that takes no quality has no `qualities`.
+         *
+         *     For `images_upscale`, each model lists the `upscale_factors` it accepts, with its default.
+         *
+         *     **No prices.** A price is the cost of one call with its inputs, not a property of a model.
+         *     What a job actually cost is on the finished job (`credits.ai_credits`).
+         */
+        get: operations["listAiModels"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/async/banners/export": {
         parameters: {
             query?: never;
@@ -826,19 +1059,23 @@ export interface components {
              *     `format_not_found`, `visual_not_found`, `generation_request_not_found`,
              *     `duplication_request_not_found`, `workspace_template_not_found`, `project_not_found`,
              *     `not_related_to_same_template`, `not_related_to_same_format`, `not_found`,
-             *     `endpoint_not_found`.
+             *     `endpoint_not_found`, `asset_job_not_found`.
              *
              *     **Too late.** The job finished, but its result is no longer kept (7 days):
              *     `generation_request_gone`, `duplication_request_gone`. Generate again, and store the
              *     result this time rather than re-polling for it later.
              *
-             *     **Back off, then retry.** These two are the only ones worth a retry loop:
-             *     `request_rate_limited`, `rate_limit_exceeded`.
+             *     **Back off, then retry.** These are the only ones worth a retry loop:
+             *     `request_rate_limited`, `rate_limit_exceeded`, and for asset jobs
+             *     `too_many_asset_jobs` (wait for a running job to finish), `asset_jobs_disabled` and
+             *     `ai_service_unavailable` (nothing was started or charged; retry later).
              *
-             *     **Retrying never helps — something has to change first.** The plan or the credit
-             *     balance: `feature_not_in_plan`, `api_access_denied`. Note that `rate_limit_exceeded`
-             *     lands here too when it means "not enough credits"; the message is what tells the two
-             *     apart, which is why both entries name it.
+             *     **Retrying never helps — something has to change first.** The plan, the credit
+             *     balance or the workspace settings: `feature_not_in_plan`, `api_access_denied`,
+             *     `insufficient_credits` (AI credits), `ai_model_disabled` (the model is disabled in the
+             *     workspace settings). Note that `rate_limit_exceeded` lands here too when it means "not
+             *     enough credits"; the message is what tells the two apart, which is why both entries
+             *     name it.
              *
              *     **Authenticate.** `unauthorized` for a missing, unknown or revoked key;
              *     `api_access_denied` when the key is valid but the plan excludes API access. There is
@@ -1752,6 +1989,203 @@ export interface components {
             generation_credits: components["schemas"]["CreditBlock"];
             /** @description AI feature credits — `text_to_image`, background removal, etc. */
             ai_credits: components["schemas"]["CreditBlock"];
+        };
+        AssetJobQueued: {
+            /**
+             * Format: uuid
+             * @description Identifier of the job — poll `GET /asset-jobs/{jobId}` with it.
+             * @example 8f0c2a4e-4869-11f0-96f2-0a00d9eb8f78
+             */
+            job_id: string;
+            /**
+             * @description Always `PENDING` here.
+             * @enum {string}
+             */
+            status: "PENDING";
+            version?: components["schemas"]["ApiVersion"];
+        };
+        /** @description An asset job, as the poll returns it and as the `ASSET_JOB_FINALIZED` webhook carries it. */
+        AssetJob: {
+            /**
+             * Format: uuid
+             * @description Identifier of the job.
+             * @example 8f0c2a4e-4869-11f0-96f2-0a00d9eb8f78
+             */
+            job_id: string;
+            /**
+             * @description The action the job runs, named `{media}_{tool}` after its path (`POST /images/upscale` →
+             *     `images_upscale`): `images_remove_background`, `images_text_to_image`, `images_upscale`.
+             *     Not a closed list: more actions are added over time, so treat a value you do not know as
+             *     generic.
+             * @example images_remove_background
+             */
+            operation: string;
+            /**
+             * @description `PENDING` (queued) → `PROCESSING` → `COMPLETED` or `FAILED`. The last two are final;
+             *     a job never leaves them.
+             * @enum {string}
+             */
+            status: "PENDING" | "PROCESSING" | "COMPLETED" | "FAILED";
+            /** @description What the job produced, each output typed — one image for every action today. Always an array: empty until `COMPLETED`, and on a failed job. */
+            outputs: components["schemas"]["AssetJobOutput"][];
+            /** @description What the job has spent so far, in every status. */
+            credits: components["schemas"]["AssetJobCredits"];
+            /** @description Why the job failed, only when `FAILED`; `null` otherwise. */
+            error: {
+                /**
+                 * @description Machine-readable reason. Not a closed list: treat a code you do not know as
+                 *     generic. For example:
+                 *
+                 *     - `invalid_input_asset` — an input image (the image of a background removal, a
+                 *       reference image of a text to image) could not be downloaded or read.
+                 *     - `invalid_input` — the provider refused the request's inputs (for a text to image,
+                 *       typically a prompt it would not generate).
+                 *     - `insufficient_credits` — the AI credit balance ran out before the job ran.
+                 * @example invalid_input_asset
+                 */
+                code: string;
+                /**
+                 * @description Plain-language reason, safe to show to an end user.
+                 * @example The image https://example.com/product.jpg was not found (HTTP 404). Check the URL.
+                 */
+                message: string;
+            } | null;
+            /**
+             * Format: date-time
+             * @description When the job was started (UTC).
+             * @example 2026-09-21T14:13:20Z
+             */
+            created_at: string;
+            /**
+             * Format: date-time
+             * @description When the job reached `COMPLETED` or `FAILED` (UTC); `null` before.
+             * @example 2026-09-21T14:13:27Z
+             */
+            finalized_at: string | null;
+            version?: components["schemas"]["ApiVersion"];
+        };
+        /** @description What the job has spent so far — the same two balances, under the same names, as `GET /credits`. `0` until the job completes. */
+        AssetJobCredits: {
+            /**
+             * @description Generation credits the job has spent so far; final once `COMPLETED`. `0` when the action doesn't spend them (every action today).
+             * @example 0
+             */
+            generation_credits: number;
+            /**
+             * @description AI credits the job has spent so far; final once `COMPLETED`.
+             * @example 3
+             */
+            ai_credits: number;
+        };
+        /**
+         * @description One thing an asset job produced. `type` says what it is and which fields it always carries:
+         *
+         *     - `image` — `url` and `mime_type`.
+         *
+         *     Only `image` exists today. Not a closed list: more types (`video`, `audio`, `text`) come with
+         *     the actions that produce them, so skip an output whose `type` you do not know.
+         */
+        AssetJobOutput: {
+            /**
+             * @description What the output is. `image` today; not a closed list.
+             * @example image
+             */
+            type: string;
+            /**
+             * Format: uri
+             * @description Link to the file, signed and valid 7 days from the response that carried it. Download
+             *     the file to keep it. The link only answers `GET`: a `HEAD` request on it answers `403`.
+             * @example https://production-banners.s3.eu-west-1.amazonaws.com/tmp_ai/4b1d6e2a-9c3f-4a7e-8b5d-2f6c1a9e7d40/8f0c2a4e-4869-11f0-96f2-0a00d9eb8f78.webp
+             */
+            url: string;
+            /**
+             * @description The file's media type, e.g. `image/webp`, `image/png` or `image/jpeg`. `null` in the rare
+             *     case the type could not be read; `url` is always there.
+             * @example image/webp
+             */
+            mime_type: string | null;
+        };
+        /**
+         * @example {
+         *       "operation": "images_remove_background",
+         *       "default_model": "bria-rmbg-2-0",
+         *       "models": [
+         *         {
+         *           "id": "birefnet",
+         *           "name": "BiRefNet",
+         *           "is_default": false
+         *         },
+         *         {
+         *           "id": "bria-rmbg-2-0",
+         *           "name": "BRIA RMBG 2.0",
+         *           "is_default": true
+         *         },
+         *         {
+         *           "id": "pixelcut",
+         *           "name": "Pixelcut",
+         *           "is_default": false
+         *         }
+         *       ]
+         *     }
+         */
+        AiModelListing: {
+            /**
+             * @description The AI action the models are listed for.
+             * @example images_remove_background
+             */
+            operation: string;
+            /**
+             * @description Id of the model used when a request names none; `null` when every model is disabled.
+             * @example bria-rmbg-2-0
+             */
+            default_model: string | null;
+            /** @description The models the workspace can use for the action, in a stable order. */
+            models: {
+                /**
+                 * @description The id to pass as `model`.
+                 * @example bria-rmbg-2-0
+                 */
+                id: string;
+                /**
+                 * @description Display name.
+                 * @example BRIA RMBG 2.0
+                 */
+                name: string;
+                /**
+                 * @description Whether this is `default_model`.
+                 * @example true
+                 */
+                is_default: boolean;
+                aspect_ratios?: components["schemas"]["AiModelParam"];
+                qualities?: components["schemas"]["AiModelParam"];
+                upscale_factors?: components["schemas"]["AiModelParam"];
+                /**
+                 * @description How many `reference_image_urls` the text to image action takes at most with this
+                 *     model. Absent when the model takes no reference images.
+                 * @example 8
+                 */
+                max_reference_images?: number;
+            }[];
+            version?: components["schemas"]["ApiVersion"];
+        };
+        /** @description A parameter the model accepts: on `images_text_to_image` models, `aspect_ratios` → `aspect_ratio` and `qualities` → `quality`; on `images_upscale` models, `upscale_factors` → `upscale_factor`. Absent when the model does not take the parameter: omit it from the request then. */
+        AiModelParam: {
+            /**
+             * @description The values the model accepts, exactly as to pass them.
+             * @example [
+             *       "1:1",
+             *       "16:9",
+             *       "9:16",
+             *       "4:3",
+             *       "3:4"
+             *     ]
+             */
+            allowed: string[];
+            /**
+             * @description The value used when the request omits the parameter.
+             * @example 1:1
+             */
+            default: string;
         };
         RootElement: {
             background_color?: components["schemas"]["backgroundColor"];
@@ -3700,7 +4134,7 @@ export interface operations {
                      * Format: uri
                      * @description **The url that will be called once generation of your images is done.**
                      *
-                     *     We will do a `POST` request of the [NewBannerBatch](#operation/newBannerBatch) event on this URL with a JSON payload.
+                     *     We will do a `POST` request of the [NewBannerBatch](/webhooks/events/banner-events#new-banner-batch) event on this URL with a JSON payload.
                      */
                     callback_url?: string;
                     /**
@@ -3987,6 +4421,468 @@ export interface operations {
             500: components["responses"]["InternalServerError"];
         };
     };
+    removeBackground: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "image_url": "https://example.com/product.jpg",
+                 *       "crop": true,
+                 *       "callback_url": "https://example.com/webhooks/abyssale"
+                 *     }
+                 */
+                "application/json": {
+                    /**
+                     * Format: uri
+                     * @description Public `http(s)` URL of the image: PNG, JPEG, WebP or SVG, up to 20 MB. It is
+                     *     downloaded when the job runs.
+                     * @example https://example.com/product.jpg
+                     */
+                    image_url: string;
+                    /**
+                     * @description The AI model to use, by id — one listed by
+                     *     `GET /ai-models?operation=images_remove_background`. Omitted, the workspace's default
+                     *     is used. An id that is not a background removal model answers `400`.
+                     * @example bria-rmbg-2-0
+                     */
+                    model?: string;
+                    /**
+                     * @description Crop the transparent edges off the result.
+                     * @default false
+                     */
+                    crop?: boolean;
+                    /**
+                     * Format: uri
+                     * @description **The `http(s)` URL called once the job ends**, completed or failed.
+                     *
+                     *     We will do a `POST` request of the [ASSET_JOB_FINALIZED](/webhooks/events/asset-job-events#asset-job-finalized)
+                     *     event on this URL with a JSON payload.
+                     */
+                    callback_url?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description The job is queued; poll `job_id` or wait for the webhook. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssetJobQueued"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            /** @description Not enough AI credits for this call (`insufficient_credits`). Nothing was queued. */
+            402: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "id": "insufficient_credits",
+                     *       "message": "Not enough AI credits in this workspace."
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /**
+             * @description Too Many Requests. Two different limits answer here, and the `id` tells them apart:
+             *
+             *     - `too_many_asset_jobs` — the workspace already has the maximum number of asset jobs
+             *       pending or processing. Wait for one to finish, then retry.
+             *     - `rate_limit_exceeded` — the global ceiling of 10 requests/second.
+             */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            500: components["responses"]["InternalServerError"];
+            /**
+             * @description The job could not be started right now — no job was created and nothing was charged.
+             *     `asset_jobs_disabled` while the feature is switched off, `ai_service_unavailable` when a
+             *     service it depends on cannot be reached. Retry later.
+             */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "id": "ai_service_unavailable",
+                     *       "message": "Background removal is unavailable right now."
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    textToImage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "prompt": "A red fox sitting in fresh snow at sunrise, soft light",
+                 *       "model": "nano-banana-2",
+                 *       "aspect_ratio": "16:9",
+                 *       "callback_url": "https://example.com/webhooks/abyssale"
+                 *     }
+                 */
+                "application/json": {
+                    /**
+                     * @description What to generate. At least 3 words.
+                     * @example A red fox sitting in fresh snow at sunrise, soft light
+                     */
+                    prompt: string;
+                    /**
+                     * @description The AI model to use, by id — one listed by
+                     *     `GET /ai-models?operation=images_text_to_image`. Omitted, the workspace's default is
+                     *     used. An id that is not an image generation model answers `400`.
+                     * @example nano-banana-2
+                     */
+                    model?: string;
+                    /**
+                     * @description The image's shape, as the model names it — one of the model's
+                     *     `aspect_ratios.allowed` in `GET /ai-models?operation=images_text_to_image`. Omitted,
+                     *     the model's default. Another value answers `400 unknown_enum_value` with the
+                     *     accepted ones in `errors[].expected`.
+                     * @example 16:9
+                     */
+                    aspect_ratio?: string;
+                    /**
+                     * @description The image's quality or resolution tier, as the model names it — one of the
+                     *     model's `qualities.allowed`. Omitted, the model's default. Send none for a
+                     *     model that lists no `qualities`: it takes none, and any value answers
+                     *     `400 unknown_enum_value`.
+                     * @example 1K
+                     */
+                    quality?: string;
+                    /**
+                     * @description Public `http(s)` URLs of images that guide the generation: PNG, JPEG or WebP, up
+                     *     to 20 MB each. At least 1, at most the model's `max_reference_images` from
+                     *     `GET /ai-models` (16 for the models that take the most). Downloaded when the job runs. The model must accept reference images; some models charge
+                     *     for each one.
+                     * @example [
+                     *       "https://example.com/product.png"
+                     *     ]
+                     */
+                    reference_image_urls?: string[];
+                    /**
+                     * Format: uri
+                     * @description **The `http(s)` URL called once the job ends**, completed or failed.
+                     *
+                     *     We will do a `POST` request of the [ASSET_JOB_FINALIZED](/webhooks/events/asset-job-events#asset-job-finalized)
+                     *     event on this URL with a JSON payload.
+                     */
+                    callback_url?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description The job is queued; poll `job_id` or wait for the webhook. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssetJobQueued"];
+                };
+            };
+            /**
+             * @description Bad Request — nothing was queued. Besides an invalid body (`invalid_payload`, e.g. a
+             *     prompt under 3 words), `unknown_enum_value` when `aspect_ratio` or `quality` is not one
+             *     the model accepts, or when reference images are sent to a model that takes none
+             *     (`path: model`); `errors[].expected` lists the accepted values. `out_of_range` when
+             *     `reference_image_urls` holds more images than the model takes (its
+             *     `max_reference_images` in `GET /ai-models`) or is empty. `ai_model_disabled` when the
+             *     model, or every image generation model, is disabled in the workspace settings.
+             */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description Not enough AI credits for this call (`insufficient_credits`). Nothing was queued. */
+            402: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "id": "insufficient_credits",
+                     *       "message": "Not enough AI credits in this workspace."
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /**
+             * @description Too Many Requests. Two different limits answer here, and the `id` tells them apart:
+             *
+             *     - `too_many_asset_jobs` — the workspace already has the maximum number of asset jobs
+             *       pending or processing. Wait for one to finish, then retry.
+             *     - `rate_limit_exceeded` — the global ceiling of 10 requests/second.
+             */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            500: components["responses"]["InternalServerError"];
+            /**
+             * @description The job could not be started right now — no job was created and nothing was charged.
+             *     `asset_jobs_disabled` while the feature is switched off, `ai_service_unavailable` when a
+             *     service it depends on cannot be reached. Retry later.
+             */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "id": "ai_service_unavailable",
+                     *       "message": "Image generation is unavailable right now."
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    upscale: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "image_url": "https://example.com/product.jpg",
+                 *       "upscale_factor": 2,
+                 *       "callback_url": "https://example.com/webhooks/abyssale"
+                 *     }
+                 */
+                "application/json": {
+                    /**
+                     * Format: uri
+                     * @description Public `http(s)` URL of the image: PNG, JPEG or WebP, up to 20 MB. It is
+                     *     downloaded when the job runs.
+                     * @example https://example.com/product.jpg
+                     */
+                    image_url: string;
+                    /**
+                     * @description The AI model to use, by id — one listed by `GET /ai-models?operation=images_upscale`.
+                     *     Omitted, the workspace's default is used. An id that is not an upscale model
+                     *     answers `400`.
+                     * @example topaz-precision
+                     */
+                    model?: string;
+                    /**
+                     * @description How many times larger the result is, on each side — one of the model's
+                     *     `upscale_factors.allowed` in `GET /ai-models?operation=images_upscale`, as a number
+                     *     (`2`) or as listed (`"2"`). Omitted, the model's default. Another value answers
+                     *     `400 unknown_enum_value` with the accepted ones in `errors[].expected`.
+                     * @example 2
+                     */
+                    upscale_factor?: number | string;
+                    /**
+                     * Format: uri
+                     * @description **The `http(s)` URL called once the job ends**, completed or failed.
+                     *
+                     *     We will do a `POST` request of the [ASSET_JOB_FINALIZED](/webhooks/events/asset-job-events#asset-job-finalized)
+                     *     event on this URL with a JSON payload.
+                     */
+                    callback_url?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description The job is queued; poll `job_id` or wait for the webhook. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssetJobQueued"];
+                };
+            };
+            /**
+             * @description Bad Request — nothing was queued. Besides an invalid body (`invalid_payload`),
+             *     `unknown_enum_value` when `upscale_factor` is not one the model accepts;
+             *     `errors[].expected` lists the accepted values. `ai_model_disabled` when the model, or
+             *     every upscale model, is disabled in the workspace settings.
+             */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description The workspace has no AI credits left (`insufficient_credits`). Nothing was queued. */
+            402: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "id": "insufficient_credits",
+                     *       "message": "Not enough AI credits in this workspace."
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /**
+             * @description Too Many Requests. Two different limits answer here, and the `id` tells them apart:
+             *
+             *     - `too_many_asset_jobs` — the workspace already has the maximum number of asset jobs
+             *       pending or processing. Wait for one to finish, then retry.
+             *     - `rate_limit_exceeded` — the global ceiling of 10 requests/second.
+             */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            500: components["responses"]["InternalServerError"];
+            /**
+             * @description The job could not be started right now — no job was created and nothing was charged.
+             *     `asset_jobs_disabled` while the feature is switched off, `ai_service_unavailable` when a
+             *     service it depends on cannot be reached. Retry later.
+             */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "id": "ai_service_unavailable",
+                     *       "message": "Upscale is unavailable right now."
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    getAssetJob: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The `job_id` returned when the job was started. */
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The job, whatever its status. */
+            200: {
+                headers: {
+                    "X-RateLimit-Limit": components["headers"]["XRateLimitLimit"];
+                    "X-RateLimit-Remaining": components["headers"]["XRateLimitRemaining"];
+                    "X-RateLimit-Reset": components["headers"]["XRateLimitReset"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssetJob"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description No such job in this workspace (`asset_job_not_found`) — it does not exist, belongs to another workspace, was not started on this API, or finished more than 7 days ago. A `jobId` that is not a UUID answers `404 endpoint_not_found` instead. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "id": "asset_job_not_found",
+                     *       "message": "Job '8f0c2a4e-4869-11f0-96f2-0a00d9eb8f78' not found"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    listAiModels: {
+        parameters: {
+            query?: {
+                /** @description The AI action to list models for. Omit it to list every action. Any other value answers `400 unknown_enum_value`. */
+                operation?: "images_remove_background" | "images_text_to_image" | "images_upscale";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The models available to the workspace: for that action with `operation`, for every action (`operations`) without. */
+            200: {
+                headers: {
+                    "X-RateLimit-Limit": components["headers"]["XRateLimitLimit"];
+                    "X-RateLimit-Remaining": components["headers"]["XRateLimitRemaining"];
+                    "X-RateLimit-Reset": components["headers"]["XRateLimitReset"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiModelListing"] | {
+                        /** @description One listing per AI action of the public API. */
+                        operations: components["schemas"]["AiModelListing"][];
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
     exportBanners: {
         parameters: {
             query?: never;
@@ -4065,7 +4961,7 @@ export interface operations {
                      * Format: uri
                      * @description **The url that will be called once generation of your PDF is done.**
                      *
-                     *     We will do a `POST` request of the [NewBannerBatch](#operation/newBannerBatch) event on this URL with a JSON payload.
+                     *     We will do a `POST` request of the [NewBannerBatch](/webhooks/events/banner-events#new-banner-batch) event on this URL with a JSON payload.
                      */
                     callback_url?: string;
                     /** @description Print output options */
