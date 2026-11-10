@@ -2,6 +2,22 @@
 
 All notable changes to `@abyssale/sdk` are documented here.
 
+## [1.12.0] — 2026-11-10
+
+Types regenerated against API version `v2026-11-10`. Minor, not patch: the three generation bodies
+gained an optional field. Nothing was removed or narrowed, so there is no upgrade step beyond
+installing it.
+
+### Added
+
+- **`file_name`** on `generateImage`, `generateMultiFormatMedia` and `generateMultiPagePdf`: a
+  top-level option, next to `elements` (or `pages`), that names the generated file — returned as
+  `file.filename` — in place of the naming set in the design settings. 1–255 characters, without
+  extension, and the same properties as the design naming (`{format_name}`, `{template_name}`,
+  `{title.payload}`…); on a multi-page PDF it names the whole document. It is a label, not a key:
+  it never changes the file's `url`, several visuals may share it (include `{format_name}` when
+  generating several formats), and an export adds `-1`, `-2`… to repeated names.
+
 ## [1.11.0] — 2026-11-09
 
 Types regenerated against API version `v2026-11-09`, which gained the AI asset-job endpoints

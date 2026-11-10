@@ -365,6 +365,7 @@ const abyssale = {
    * const { data } = await abyssale.generateMultiFormatMedia(designId, {
    *   elements: { title: { payload: 'Summer Sale' } },
    *   template_format_names: ['facebook-feed', 'instagram-post'],
+   *   file_name: 'summer-sale-{format_name}',
    *   callback_url: 'https://your-webhook.com/abyssale',
    * });
    */
